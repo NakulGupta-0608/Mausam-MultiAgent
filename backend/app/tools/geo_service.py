@@ -1,70 +1,132 @@
-import httpx
+import asyncio
 from typing import Optional
-from backend.app.schemas.weather import GeoLocation
+import httpx
+from pydantic import ValidationError
+from backend.app.schemas.weather import (
+    GeoLocation,
+    OpenMeteoGeoSearchResponse,
+)
+from backend.app.core.exceptions import (
+    LocationNotFoundException,
+    WeatherApiTimeoutException,
+    WeatherApiErrorException,
+    MalformedResponseException,
+)
 from backend.app.monitoring.logger import logger
-
-KNOWN_LOCATIONS = {
-    "delhi": GeoLocation(name="New Delhi", country="India", region="Delhi", latitude=28.6139, longitude=77.2090, timezone="Asia/Kolkata"),
-    "mumbai": GeoLocation(name="Mumbai", country="India", region="Maharashtra", latitude=19.0760, longitude=72.8777, timezone="Asia/Kolkata"),
-    "bengaluru": GeoLocation(name="Bengaluru", country="India", region="Karnataka", latitude=12.9716, longitude=77.5946, timezone="Asia/Kolkata"),
-    "bangalore": GeoLocation(name="Bengaluru", country="India", region="Karnataka", latitude=12.9716, longitude=77.5946, timezone="Asia/Kolkata"),
-    "shimla": GeoLocation(name="Shimla", country="India", region="Himachal Pradesh", latitude=31.1048, longitude=77.1734, timezone="Asia/Kolkata"),
-    "manali": GeoLocation(name="Manali", country="India", region="Himachal Pradesh", latitude=32.2396, longitude=77.1887, timezone="Asia/Kolkata"),
-    "london": GeoLocation(name="London", country="United Kingdom", region="Greater London", latitude=51.5074, longitude=-0.1278, timezone="Europe/London"),
-    "new york": GeoLocation(name="New York", country="United States", region="New York", latitude=40.7128, longitude=-74.0060, timezone="America/New_York"),
-    "tokyo": GeoLocation(name="Tokyo", country="Japan", region="Tokyo", latitude=35.6762, longitude=139.6503, timezone="Asia/Tokyo"),
-    "paris": GeoLocation(name="Paris", country="France", region="Île-de-France", latitude=48.8566, longitude=2.3522, timezone="Europe/Paris"),
-    "sydney": GeoLocation(name="Sydney", country="Australia", region="New South Wales", latitude=-33.8688, longitude=151.2093, timezone="Australia/Sydney"),
-    "san francisco": GeoLocation(name="San Francisco", country="United States", region="California", latitude=37.7749, longitude=-122.4194, timezone="America/Los_Angeles"),
-}
 
 
 class GeoService:
-    """Geocoding service using Open-Meteo geocoding API with robust fallback."""
+    """Production geocoding service using Open-Meteo Geocoding API with schema validation and bounded retries.
+    
+    Never synthesizes or fabricates locations. If a location cannot be resolved, an explicit
+    LocationNotFoundException is raised.
+    """
+
+    GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
+    MAX_RETRIES = 2
+    TIMEOUT_SECONDS = 4.0
 
     async def geocode(self, location_name: str) -> GeoLocation:
         clean_name = location_name.strip()
-        lower_name = clean_name.lower()
+        if not clean_name:
+            raise LocationNotFoundException(
+                location="<empty>",
+                detail="Location name cannot be empty."
+            )
 
-        # Check known quick lookup
-        if lower_name in KNOWN_LOCATIONS:
-            return KNOWN_LOCATIONS[lower_name]
+        params = {
+            "name": clean_name,
+            "count": 1,
+            "language": "en",
+            "format": "json"
+        }
 
-        # Attempt Open-Meteo Geocoding API
-        try:
-            url = f"https://geocoding-api.open-meteo.com/v1/search?name={clean_name}&count=1&language=en&format=json"
-            async with httpx.AsyncClient(timeout=4.0) as client:
-                resp = await client.get(url)
+        retries_attempted = 0
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.TIMEOUT_SECONDS) as client:
+                    resp = await client.get(self.GEOCODING_URL, params=params)
+
                 if resp.status_code == 200:
-                    data = resp.json()
-                    results = data.get("results")
-                    if results and len(results) > 0:
-                        top = results[0]
-                        return GeoLocation(
-                            name=top.get("name", clean_name.title()),
-                            country=top.get("country"),
-                            region=top.get("admin1"),
-                            latitude=float(top["latitude"]),
-                            longitude=float(top["longitude"]),
-                            timezone=top.get("timezone", "UTC"),
+                    raw_data = resp.json()
+                    # Validate raw response schema
+                    try:
+                        validated = OpenMeteoGeoSearchResponse.model_validate(raw_data)
+                    except ValidationError as ve:
+                        logger.error(f"Malformed geocoding response for '{clean_name}': {ve}")
+                        raise MalformedResponseException(
+                            message=f"Geocoding service returned an unexpected data structure for '{clean_name}'.",
+                            detail=str(ve),
+                            location=clean_name,
+                            retries_attempted=retries_attempted,
                         )
-        except Exception as e:
-            logger.warning(f"Geocoding service network lookup failed: {e}. Falling back to dynamic synthesizer.")
 
-        # Algorithmic deterministic fallback for arbitrary queries
-        # Derive coordinates from hashing to produce repeatable, realistic geography
-        h = abs(hash(clean_name))
-        lat = 10.0 + (h % 5000) / 100.0  # Between 10.0 and 60.0
-        lon = -120.0 + ((h >> 5) % 24000) / 100.0  # Between -120.0 and 120.0
+                    if not validated.results or len(validated.results) == 0:
+                        logger.info(f"Geocoding returned 0 results for '{clean_name}'")
+                        raise LocationNotFoundException(
+                            location=clean_name,
+                            detail="No geographical match found in global database.",
+                            retries_attempted=retries_attempted,
+                        )
 
-        return GeoLocation(
-            name=clean_name.title(),
-            country="Global",
-            region="Sub-region",
-            latitude=round(lat, 4),
-            longitude=round(lon, 4),
-            timezone="UTC",
-        )
+                    top = validated.results[0]
+                    return GeoLocation(
+                        name=top.name,
+                        country=top.country,
+                        region=top.admin1,
+                        latitude=top.latitude,
+                        longitude=top.longitude,
+                        timezone=top.timezone or "UTC",
+                    )
+
+                elif 400 <= resp.status_code < 500:
+                    # Client error - do not retry
+                    raise LocationNotFoundException(
+                        location=clean_name,
+                        detail=f"Geocoding service rejected query (HTTP {resp.status_code}).",
+                        retries_attempted=retries_attempted,
+                    )
+                else:
+                    # Server error (5xx)
+                    last_error = WeatherApiErrorException(
+                        message=f"Geocoding service returned server error HTTP {resp.status_code}.",
+                        status_code=502,
+                        location=clean_name,
+                        detail=resp.text,
+                        retries_attempted=retries_attempted,
+                    )
+
+            except (httpx.TimeoutException, httpx.ConnectTimeout) as te:
+                last_error = te
+                logger.warning(f"Geocoding timeout for '{clean_name}' (attempt {attempt + 1}/{self.MAX_RETRIES + 1}): {te}")
+            except (httpx.ConnectError, httpx.NetworkError) as ne:
+                last_error = ne
+                logger.warning(f"Geocoding network error for '{clean_name}' (attempt {attempt + 1}/{self.MAX_RETRIES + 1}): {ne}")
+            except (LocationNotFoundException, MalformedResponseException):
+                raise
+
+            retries_attempted += 1
+            if attempt < self.MAX_RETRIES:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+
+        # If loop finishes without returning or raising specific domain error
+        if isinstance(last_error, (httpx.TimeoutException, httpx.ConnectTimeout)):
+            raise WeatherApiTimeoutException(
+                message=f"Geocoding service timed out while resolving '{clean_name}'.",
+                location=clean_name,
+                retries_attempted=retries_attempted,
+            )
+        elif isinstance(last_error, WeatherServiceException):
+            raise last_error
+        else:
+            raise WeatherApiErrorException(
+                message=f"Failed to resolve location '{clean_name}' after {retries_attempted} attempts.",
+                detail=str(last_error) if last_error else "Network connection unreachable",
+                location=clean_name,
+                retries_attempted=retries_attempted,
+            )
 
 
 geo_service = GeoService()

@@ -1,5 +1,38 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+export class WeatherApiError extends Error {
+  constructor(status, errorData, defaultMsg = 'Weather request failed') {
+    let msg = defaultMsg;
+    let errorCode = 'UNKNOWN_ERROR';
+    let detail = null;
+    let locationSearched = null;
+    let retriesAttempted = 0;
+    let timestamp = new Date().toISOString();
+
+    if (errorData && typeof errorData === 'object') {
+      const errObj = errorData.detail && typeof errorData.detail === 'object'
+        ? errorData.detail
+        : errorData;
+
+      msg = errObj.message || (typeof errorData.detail === 'string' ? errorData.detail : defaultMsg);
+      errorCode = errObj.error_code || (status === 404 ? 'LOCATION_NOT_FOUND' : 'WEATHER_API_ERROR');
+      detail = errObj.detail || null;
+      locationSearched = errObj.location_searched || null;
+      retriesAttempted = errObj.retries_attempted || 0;
+      timestamp = errObj.timestamp || timestamp;
+    }
+
+    super(msg);
+    this.name = 'WeatherApiError';
+    this.status = status;
+    this.errorCode = errorCode;
+    this.detail = detail;
+    this.locationSearched = locationSearched;
+    this.retriesAttempted = retriesAttempted;
+    this.timestamp = timestamp;
+  }
+}
+
 export const apiClient = {
   async getHealth() {
     const res = await fetch(`${BASE_URL}/health`);
@@ -21,17 +54,22 @@ export const apiClient = {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Analysis failed' }));
-      throw new Error(err.detail || `Analysis request failed with status: ${res.status}`);
+      const errorJson = await res.json().catch(() => null);
+      throw new WeatherApiError(res.status, errorJson, `Analysis request failed (${res.status})`);
     }
     return res.json();
   },
 
   async getWeather(location, date) {
-    const params = new URLSearchParams({ location });
+    const cleanLocation = location.trim();
+    const params = new URLSearchParams({ location: cleanLocation });
     if (date) params.append('date', date);
-    const res = await fetch(`${BASE_URL}/weather/current?${params.toString()}`);
-    if (!res.ok) throw new Error(`Weather fetch failed: ${res.status}`);
+
+    const res = await fetch(`${BASE_URL}/weather?${params.toString()}`);
+    if (!res.ok) {
+      const errorJson = await res.json().catch(() => null);
+      throw new WeatherApiError(res.status, errorJson, `Weather query failed (${res.status})`);
+    }
     return res.json();
   },
 

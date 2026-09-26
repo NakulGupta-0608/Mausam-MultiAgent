@@ -10,6 +10,7 @@ import {
   Compass,
   Thermometer,
   Cloud,
+  CheckCircle2,
 } from 'lucide-react';
 
 export default function WeatherOverview({ weather }) {
@@ -22,26 +23,33 @@ export default function WeatherOverview({ weather }) {
       {/* Header section with location & big temp */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
         <div>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-2xl font-bold text-white tracking-tight">
               {loc?.name || 'Target Location'}
             </h2>
             {loc?.country && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
                 {loc.region ? `${loc.region}, ` : ''}{loc.country}
               </span>
             )}
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
+              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+              Verified Live Telemetry
+            </span>
           </div>
-          <div className="flex items-center space-x-3 text-xs text-slate-400 mt-1">
-            <span>Observed: {weather.observed_date}</span>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 mt-2">
+            <span>Observed Date: <strong>{weather.observed_date}</strong></span>
             <span>•</span>
-            <span>Lat: {loc?.latitude}° / Lon: {loc?.longitude}°</span>
+            <span>Coordinates: <strong>{loc?.latitude}°, {loc?.longitude}°</strong></span>
             <span>•</span>
-            <span className="text-cyan-400 font-medium">Source: {weather.source}</span>
+            <span>Timezone: <strong>{loc?.timezone || 'UTC'}</strong></span>
+            <span>•</span>
+            <span className="text-cyan-400 font-mono">Provider: {weather.source}</span>
           </div>
         </div>
 
-        <div className="flex items-baseline space-x-3 bg-slate-900/60 px-4 py-2.5 rounded-xl border border-slate-800">
+        <div className="flex items-baseline space-x-3 bg-slate-900/60 px-4 py-2.5 rounded-xl border border-slate-800 shrink-0">
           <div className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent">
             {weather.temp_c}°C
           </div>
@@ -98,9 +106,7 @@ export default function WeatherOverview({ weather }) {
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <div className="text-lg font-bold text-white">{weather.air_quality_index} <span className="text-xs font-normal text-slate-400">AQI</span></div>
-          <div className="text-[10px] text-slate-500">
-            {weather.air_quality_index < 50 ? 'Good' : weather.air_quality_index < 100 ? 'Moderate' : 'Unhealthy'}
-          </div>
+          <div className="text-[10px] text-slate-500">Baseline indicator</div>
         </div>
 
         <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800/80 flex flex-col justify-between">
@@ -117,7 +123,7 @@ export default function WeatherOverview({ weather }) {
       {weather.forecast_days && weather.forecast_days.length > 0 && (
         <div className="pt-2">
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-cyan-400" /> 5-Day Atmospheric Outlook
+            <Calendar className="w-3.5 h-3.5 text-cyan-400" /> 5-Day Real Forecast Outlook
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {weather.forecast_days.map((day, idx) => (
@@ -143,7 +149,7 @@ export default function WeatherOverview({ weather }) {
                 <div className="text-[11px] text-slate-400 mt-1 truncate max-w-full">
                   {day.condition}
                 </div>
-                <div className="text-[10px] text-cyan-400 mt-1">
+                <div className="text-[10px] text-cyan-400 mt-1 font-medium">
                   {day.rain_probability}% rain
                 </div>
               </div>

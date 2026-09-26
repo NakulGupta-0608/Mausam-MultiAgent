@@ -1,10 +1,13 @@
 import uvicorn
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.core.config import settings
 from backend.app.api import api_router
 from backend.app.monitoring.logger import logger
+from backend.app.core.exceptions import WeatherServiceException
 
 
 @asynccontextmanager
@@ -29,6 +32,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(WeatherServiceException)
+async def weather_service_exception_handler(request: Request, exc: WeatherServiceException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": True,
+            "error_code": exc.error_code,
+            "message": exc.message,
+            "detail": exc.detail,
+            "location_searched": exc.location,
+            "retries_attempted": exc.retries_attempted,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
 
 # Register main API router
 app.include_router(api_router, prefix=settings.API_V1_STR)

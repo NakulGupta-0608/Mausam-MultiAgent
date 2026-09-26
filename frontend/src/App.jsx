@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { apiClient } from './api/client';
+import { apiClient, WeatherApiError } from './api/client';
 import Header from './components/Header';
 import ChatQueryInput from './components/ChatQueryInput';
 import LocationDateForm from './components/LocationDateForm';
 import AnalysisProgress from './components/AnalysisProgress';
 import WeatherOverview from './components/WeatherOverview';
+import WeatherDegradedState from './components/WeatherDegradedState';
 import RecommendationCard from './components/RecommendationCard';
 import SavedPlans from './components/SavedPlans';
 import NotificationCenter from './components/NotificationCenter';
 import AgentExecutionTrace from './components/AgentExecutionTrace';
-import { AlertCircle, Compass, Zap, Shield, Sparkles } from 'lucide-react';
+import { AlertCircle, Sparkles } from 'lucide-react';
 
 export default function App() {
   const [backendOnline, setBackendOnline] = useState(false);
@@ -17,11 +18,18 @@ export default function App() {
   const [location, setLocation] = useState('Shimla');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
 
+  // Loading flags
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSearchingWeather, setIsSearchingWeather] = useState(false);
   const [analysisStage, setAnalysisStage] = useState(0);
+
+  // Data states
+  const [directWeather, setDirectWeather] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [weatherError, setWeatherError] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
+  // Storage
   const [savedPlans, setSavedPlans] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -32,6 +40,8 @@ export default function App() {
     checkHealth();
     fetchPlans();
     fetchNotifications();
+    // Load initial real weather for default location
+    handleSearchWeather('Shimla', date);
   }, []);
 
   const checkHealth = async () => {
@@ -61,37 +71,116 @@ export default function App() {
     }
   };
 
-  const handleAnalyze = async () => {
-    if (!location.trim()) {
+  // Direct Live Weather Lookup
+  const handleSearchWeather = async (targetLoc = location, targetDate = date) => {
+    const loc = targetLoc.trim();
+    if (!loc) {
       setErrorMsg('Please specify a target location');
       return;
     }
+
+    setIsSearchingWeather(true);
     setErrorMsg(null);
+    setWeatherError(null);
+
+    try {
+      const data = await apiClient.getWeather(loc, targetDate);
+      setDirectWeather(data);
+      setBackendOnline(true);
+      setWeatherError(null);
+    } catch (err) {
+      console.error('Weather lookup failed:', err);
+      setDirectWeather(null);
+      setAnalysisResult(null);
+
+      if (err instanceof WeatherApiError) {
+        setWeatherError({
+          errorCode: err.errorCode,
+          message: err.message,
+          detail: err.detail,
+          locationSearched: err.locationSearched || loc,
+          retriesAttempted: err.retriesAttempted,
+          timestamp: err.timestamp,
+        });
+      } else {
+        setWeatherError({
+          errorCode: 'WEATHER_API_ERROR',
+          message: err.message || 'Unable to connect to meteorological service.',
+          locationSearched: loc,
+          retriesAttempted: 0,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } finally {
+      setIsSearchingWeather(false);
+    }
+  };
+
+  // Full Multi-Agent Intelligence Pipeline
+  const handleAnalyze = async () => {
+    const loc = location.trim();
+    if (!loc) {
+      setErrorMsg('Please specify a target location');
+      return;
+    }
+    if (!query.trim()) {
+      setErrorMsg('Please enter an activity or question to analyze');
+      return;
+    }
+
+    setErrorMsg(null);
+    setWeatherError(null);
     setIsAnalyzing(true);
     setIsSavedCurrent(false);
     setAnalysisStage(0);
 
-    // Simulate multi-agent stage progress while awaiting backend response
     const stageTimer1 = setTimeout(() => setAnalysisStage(1), 400);
     const stageTimer2 = setTimeout(() => setAnalysisStage(2), 900);
 
     try {
       const result = await apiClient.analyzeWeather({
-        query: query || 'Analyze general outdoor conditions',
-        location,
+        query,
+        location: loc,
         target_date: date,
       });
 
       setAnalysisResult(result);
+      setDirectWeather(result.weather);
       setBackendOnline(true);
+      setWeatherError(null);
     } catch (err) {
       console.error('Analysis execution failed:', err);
-      setErrorMsg(err.message || 'Failed to complete multi-agent weather intelligence analysis.');
+      setAnalysisResult(null);
+      setDirectWeather(null);
+
+      if (err instanceof WeatherApiError) {
+        setWeatherError({
+          errorCode: err.errorCode,
+          message: err.message,
+          detail: err.detail,
+          locationSearched: err.locationSearched || loc,
+          retriesAttempted: err.retriesAttempted,
+          timestamp: err.timestamp,
+        });
+      } else {
+        setWeatherError({
+          errorCode: 'PIPELINE_ERROR',
+          message: err.message || 'Failed to complete multi-agent analysis.',
+          locationSearched: loc,
+          retriesAttempted: 0,
+          timestamp: new Date().toISOString(),
+        });
+      }
     } finally {
       clearTimeout(stageTimer1);
       clearTimeout(stageTimer2);
       setIsAnalyzing(false);
     }
+  };
+
+  const handleSelectSuggestion = (suggestedCity) => {
+    setLocation(suggestedCity);
+    handleSearchWeather(suggestedCity, date);
   };
 
   const handleSavePlan = async (planData) => {
@@ -118,6 +207,7 @@ export default function App() {
     setLocation(plan.location);
     setDate(plan.target_date);
     setQuery(plan.query);
+    handleSearchWeather(plan.location, plan.target_date);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -150,7 +240,7 @@ export default function App() {
         backendOnline={backendOnline}
         unreadCount={unreadNotifCount}
         onToggleNotifications={() => setIsNotificationsOpen(true)}
-        isAnalyzing={isAnalyzing}
+        isAnalyzing={isAnalyzing || isSearchingWeather}
         onRefreshHealth={checkHealth}
       />
 
@@ -166,11 +256,11 @@ export default function App() {
             Weather Intelligence Dashboard
           </h1>
           <p className="text-sm text-slate-400 max-w-2xl">
-            Ask natural language questions about outdoor plans, expeditions, or events. MausamAI’s multi-agent mesh evaluates atmospheric physics, risks, and feasibility in real time.
+            Live atmospheric telemetry verified via Open-Meteo. Ask natural language questions about outdoor plans, and MausamAI’s multi-agent mesh evaluates physics, feasibility, and risks with zero simulated numbers.
           </p>
         </div>
 
-        {/* Error notification banner */}
+        {/* Global Error Notice (Non-weather validation) */}
         {errorMsg && (
           <div className="p-4 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-sm flex items-center justify-between animate-fadeIn">
             <div className="flex items-center space-x-2">
@@ -186,7 +276,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Query & Location Input Controls */}
+        {/* Query & Location Controls */}
         <div className="space-y-4">
           <ChatQueryInput
             query={query}
@@ -201,7 +291,9 @@ export default function App() {
             date={date}
             setDate={setDate}
             onAnalyze={handleAnalyze}
+            onSearchOnly={() => handleSearchWeather(location, date)}
             isAnalyzing={isAnalyzing}
+            isSearchingWeather={isSearchingWeather}
           />
         </div>
 
@@ -211,13 +303,23 @@ export default function App() {
           currentStageIndex={analysisStage}
         />
 
-        {/* Analysis Results Display */}
-        {analysisResult && (
-          <div className="space-y-8 animate-fadeIn">
-            {/* Weather Overview */}
-            <WeatherOverview weather={analysisResult.weather} />
+        {/* Visible Unavailable / Degraded State when Weather Fails */}
+        {weatherError && (
+          <WeatherDegradedState
+            error={weatherError}
+            onRetry={() => handleSearchWeather(location, date)}
+            onSelectSuggestion={handleSelectSuggestion}
+          />
+        )}
 
-            {/* Recommendation & Feasibility Card */}
+        {/* Weather Overview (Displayed when weather data is valid and no error) */}
+        {!weatherError && directWeather && (
+          <WeatherOverview weather={directWeather} />
+        )}
+
+        {/* Analysis Results Display (Recommendation & Execution Trace) */}
+        {!weatherError && analysisResult && (
+          <div className="space-y-8 animate-fadeIn">
             <RecommendationCard
               recommendation={analysisResult.recommendation}
               query={analysisResult.query}
@@ -227,7 +329,6 @@ export default function App() {
               isSaved={isSavedCurrent}
             />
 
-            {/* Multi-Agent Trace Log */}
             <AgentExecutionTrace
               trace={analysisResult.trace}
               totalExecutionMs={analysisResult.total_execution_ms}
@@ -246,7 +347,7 @@ export default function App() {
       {/* Footer */}
       <footer className="w-full border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>MausamAI Multi-Agent System • Dynamic Atmospheric Intelligence</span>
+          <span>MausamAI Multi-Agent System • Verified Meteorological Telemetry</span>
           <span className="text-slate-400">
             Powered by FastAPI & React + Vite + Tailwind CSS
           </span>

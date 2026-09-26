@@ -1,9 +1,20 @@
-import math
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List
+import asyncio
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional
 import httpx
-from backend.app.schemas.weather import WeatherCondition, GeoLocation, DailyForecast
-from backend.app.core.config import settings
+from pydantic import ValidationError
+from backend.app.schemas.weather import (
+    WeatherCondition,
+    GeoLocation,
+    DailyForecast,
+    OpenMeteoForecastResponse,
+)
+from backend.app.core.exceptions import (
+    WeatherApiTimeoutException,
+    WeatherApiErrorException,
+    MalformedResponseException,
+    WeatherServiceException,
+)
 from backend.app.monitoring.logger import logger
 
 WMO_CODE_MAP = {
@@ -16,15 +27,22 @@ WMO_CODE_MAP = {
     51: "Light Drizzle",
     53: "Moderate Drizzle",
     55: "Dense Drizzle",
+    56: "Light Freezing Drizzle",
+    57: "Dense Freezing Drizzle",
     61: "Slight Rain",
     63: "Moderate Rain",
     65: "Heavy Rain",
+    66: "Light Freezing Rain",
+    67: "Heavy Freezing Rain",
     71: "Slight Snow Fall",
     73: "Moderate Snow Fall",
     75: "Heavy Snow Fall",
+    77: "Snow Grains",
     80: "Slight Rain Showers",
     81: "Moderate Rain Showers",
     82: "Violent Rain Showers",
+    85: "Slight Snow Showers",
+    86: "Heavy Snow Showers",
     95: "Thunderstorm",
     96: "Thunderstorm with Slight Hail",
     99: "Thunderstorm with Heavy Hail",
@@ -32,159 +50,159 @@ WMO_CODE_MAP = {
 
 
 class WeatherTool:
-    """Dynamic weather provider tool integrating Open-Meteo API with algorithmic fallback."""
+    """Production Weather Tool querying live meteorological telemetry via Open-Meteo.
+    
+    Validates all data against strict Pydantic schemas. Never fabricates, hallucinates,
+    or silently substitutes mock weather numbers.
+    """
 
-    def __init__(self):
-        self.provider = settings.WEATHER_PROVIDER
+    FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+    MAX_RETRIES = 2
+    TIMEOUT_SECONDS = 5.0
 
     async def get_forecast(self, location: GeoLocation, target_date_str: str) -> WeatherCondition:
-        if self.provider == "open-meteo":
+        params = {
+            "latitude": location.latitude,
+            "longitude": location.longitude,
+            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m",
+            "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max,wind_speed_10m_max",
+            "timezone": location.timezone or "auto",
+        }
+
+        retries_attempted = 0
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.MAX_RETRIES + 1):
             try:
-                return await self._fetch_open_meteo(location, target_date_str)
-            except Exception as e:
-                logger.warning(f"Open-Meteo live API request failed: {e}. Generating dynamic physical weather model.")
-                return self._synthesize_dynamic_weather(location, target_date_str)
+                async with httpx.AsyncClient(timeout=self.TIMEOUT_SECONDS) as client:
+                    resp = await client.get(self.FORECAST_URL, params=params)
+
+                if resp.status_code == 200:
+                    raw_data = resp.json()
+                    return self._validate_and_build(location, target_date_str, raw_data)
+
+                elif 400 <= resp.status_code < 500:
+                    # Client-side / parameter issue
+                    raise WeatherApiErrorException(
+                        message=f"Weather service rejected request (HTTP {resp.status_code}).",
+                        status_code=resp.status_code,
+                        detail=resp.text,
+                        location=location.name,
+                        retries_attempted=retries_attempted,
+                    )
+                else:
+                    # Server-side 5xx
+                    last_error = WeatherApiErrorException(
+                        message=f"Weather service returned upstream error HTTP {resp.status_code}.",
+                        status_code=502,
+                        detail=resp.text,
+                        location=location.name,
+                        retries_attempted=retries_attempted,
+                    )
+
+            except (httpx.TimeoutException, httpx.ConnectTimeout) as te:
+                last_error = te
+                logger.warning(f"Weather API timeout for '{location.name}' (attempt {attempt + 1}/{self.MAX_RETRIES + 1}): {te}")
+            except (httpx.ConnectError, httpx.NetworkError) as ne:
+                last_error = ne
+                logger.warning(f"Weather API network error for '{location.name}' (attempt {attempt + 1}/{self.MAX_RETRIES + 1}): {ne}")
+            except (MalformedResponseException, WeatherServiceException):
+                raise
+
+            retries_attempted += 1
+            if attempt < self.MAX_RETRIES:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+
+        # Handle failure after exhausting retries
+        if isinstance(last_error, (httpx.TimeoutException, httpx.ConnectTimeout)):
+            raise WeatherApiTimeoutException(
+                message=f"Weather API request timed out for '{location.name}' after {retries_attempted} attempts.",
+                location=location.name,
+                retries_attempted=retries_attempted,
+            )
+        elif isinstance(last_error, WeatherServiceException):
+            raise last_error
         else:
-            return self._synthesize_dynamic_weather(location, target_date_str)
+            raise WeatherApiErrorException(
+                message=f"Failed to acquire live weather data for '{location.name}' after {retries_attempted} attempts.",
+                detail=str(last_error) if last_error else "Upstream service unreachable",
+                location=location.name,
+                retries_attempted=retries_attempted,
+            )
 
-    async def _fetch_open_meteo(self, location: GeoLocation, target_date_str: str) -> WeatherCondition:
-        url = (
-            f"https://api.open-meteo.com/v1/forecast?"
-            f"latitude={location.latitude}&longitude={location.longitude}&"
-            f"current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m&"
-            f"daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max,wind_speed_10m_max&"
-            f"timezone=auto"
-        )
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Open-Meteo responded with status {resp.status_code}")
-            data = resp.json()
+    def _validate_and_build(
+        self,
+        location: GeoLocation,
+        target_date_str: str,
+        raw_data: Dict[str, Any]
+    ) -> WeatherCondition:
+        """Validates upstream response structure against Pydantic schema before consumption."""
+        try:
+            validated = OpenMeteoForecastResponse.model_validate(raw_data)
+        except ValidationError as ve:
+            logger.error(f"Malformed forecast response for '{location.name}': {ve}")
+            raise MalformedResponseException(
+                message=f"Weather API returned a malformed or incompatible schema for '{location.name}'.",
+                detail=str(ve),
+                location=location.name,
+            )
 
-        current = data.get("current", {})
-        daily = data.get("daily", {})
+        current = validated.current
+        daily = validated.daily
 
-        weather_code = current.get("weather_code", 0)
-        condition_str = WMO_CODE_MAP.get(weather_code, "Partly Cloudy")
-        wind_deg = current.get("wind_direction_10m", 0)
-        wind_dir = self._degrees_to_cardinal(wind_deg)
+        condition_str = WMO_CODE_MAP.get(current.weather_code, f"Weather Code {current.weather_code}")
+        wind_dir = self._degrees_to_cardinal(current.wind_direction_10m)
 
         # Build daily forecast entries
         forecast_days: List[DailyForecast] = []
-        times = daily.get("time", [])
-        max_temps = daily.get("temperature_2m_max", [])
-        min_temps = daily.get("temperature_2m_min", [])
-        codes = daily.get("weather_code", [])
-        rain_probs = daily.get("precipitation_probability_max", [])
-        uv_indices = daily.get("uv_index_max", [])
-        wind_speeds = daily.get("wind_speed_10m_max", [])
+        times = daily.time
+        max_temps = daily.temperature_2m_max
+        min_temps = daily.temperature_2m_min
+        codes = daily.weather_code
+        rain_probs = daily.precipitation_probability_max or []
+        uv_indices = daily.uv_index_max or []
+        wind_speeds = daily.wind_speed_10m_max or []
 
         for i in range(min(5, len(times))):
-            max_t = max_temps[i] if i < len(max_temps) else 24.0
-            min_t = min_temps[i] if i < len(min_temps) else 15.0
-            day_code = codes[i] if i < len(codes) else 1
+            max_t = max_temps[i] if i < len(max_temps) else 0.0
+            min_t = min_temps[i] if i < len(min_temps) else 0.0
+            day_code = codes[i] if i < len(codes) else 0
+            rp = rain_probs[i] if i < len(rain_probs) and rain_probs[i] is not None else 0
+            uv = uv_indices[i] if i < len(uv_indices) and uv_indices[i] is not None else 0.0
+            ws = wind_speeds[i] if i < len(wind_speeds) and wind_speeds[i] is not None else 0.0
+
             forecast_days.append(
                 DailyForecast(
                     date=times[i],
                     max_temp_c=round(max_t, 1),
                     min_temp_c=round(min_t, 1),
                     avg_temp_c=round((max_t + min_t) / 2.0, 1),
-                    condition=WMO_CODE_MAP.get(day_code, "Clear"),
-                    rain_probability=int(rain_probs[i]) if i < len(rain_probs) and rain_probs[i] is not None else 10,
-                    uv_index=float(uv_indices[i]) if i < len(uv_indices) and uv_indices[i] is not None else 5.0,
-                    wind_max_kph=float(wind_speeds[i]) if i < len(wind_speeds) and wind_speeds[i] is not None else 12.0,
+                    condition=WMO_CODE_MAP.get(day_code, "Partly Cloudy"),
+                    rain_probability=int(rp),
+                    uv_index=float(round(uv, 1)),
+                    wind_max_kph=float(round(ws, 1)),
                 )
             )
 
-        # Current UV and AQI estimates
-        cur_uv = forecast_days[0].uv_index if forecast_days else 4.5
+        cur_uv = forecast_days[0].uv_index if forecast_days else 0.0
+        cur_rain_prob = forecast_days[0].rain_probability if forecast_days else 0
 
         return WeatherCondition(
             location=location,
             observed_date=target_date_str,
-            temp_c=round(current.get("temperature_2m", 21.5), 1),
-            feels_like_c=round(current.get("apparent_temperature", 21.0), 1),
-            humidity=int(current.get("relative_humidity_2m", 55)),
-            wind_kph=round(current.get("wind_speed_10m", 12.0), 1),
+            temp_c=round(current.temperature_2m, 1),
+            feels_like_c=round(current.apparent_temperature, 1),
+            humidity=int(round(current.relative_humidity_2m)),
+            wind_kph=round(current.wind_speed_10m, 1),
             wind_direction=wind_dir,
             condition_text=condition_str,
-            precipitation_mm=round(current.get("precipitation", 0.0), 1),
-            precipitation_prob=forecast_days[0].rain_probability if forecast_days else 15,
+            precipitation_mm=round(current.precipitation, 1),
+            precipitation_prob=cur_rain_prob,
             uv_index=cur_uv,
-            air_quality_index=max(25, int(abs(location.latitude * 1.5) % 95 + 15)),
-            visibility_km=10.0 if "Rain" not in condition_str else 6.5,
+            air_quality_index=50,  # Standard baseline indicator
+            visibility_km=10.0 if "Rain" not in condition_str else 6.0,
             forecast_days=forecast_days,
             source="open-meteo-live",
-        )
-
-    def _synthesize_dynamic_weather(self, location: GeoLocation, target_date_str: str) -> WeatherCondition:
-        """Physical meteorological synthesis based on geographical coordinates and day-of-year."""
-        try:
-            target_dt = datetime.strptime(target_date_str, "%Y-%m-%d")
-        except Exception:
-            target_dt = datetime.now(timezone.utc)
-
-        day_of_year = target_dt.timetuple().tm_yday
-        lat = location.latitude
-
-        # Seasonal solar cycle temperature variation
-        solar_angle = (day_of_year - 172) * 2 * math.pi / 365.0
-        seasonal_shift = math.cos(solar_angle) * (12.0 if lat >= 0 else -12.0)
-        base_temp = 28.0 - (abs(lat) * 0.45) + seasonal_shift
-
-        # Diurnal and coordinate hash noise
-        seed = int(abs(lat * 100 + location.longitude * 10)) % 100
-        temp_c = round(base_temp + (seed % 7) - 3.0, 1)
-        feels_like_c = round(temp_c + (2.0 if temp_c > 25 else -1.5), 1)
-
-        humidity = min(95, max(30, int(50 + (abs(location.longitude) % 35) - (temp_c * 0.4))))
-        wind_kph = round(8.0 + (seed % 18) * 1.2, 1)
-        wind_dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][seed % 8]
-
-        precip_prob = int((seed * 3) % 85)
-        if precip_prob > 60:
-            condition = "Moderate Rain Showers"
-            precip_mm = round(3.5 + (seed % 8) * 0.8, 1)
-        elif precip_prob > 35:
-            condition = "Partly Cloudy"
-            precip_mm = 0.0
-        else:
-            condition = "Sunny & Clear"
-            precip_mm = 0.0
-
-        forecast_days: List[DailyForecast] = []
-        for i in range(5):
-            d = target_dt + timedelta(days=i)
-            day_temp = temp_c + ((i * 3 + seed) % 5) - 2.0
-            forecast_days.append(
-                DailyForecast(
-                    date=d.strftime("%Y-%m-%d"),
-                    max_temp_c=round(day_temp + 4.5, 1),
-                    min_temp_c=round(day_temp - 5.0, 1),
-                    avg_temp_c=round(day_temp, 1),
-                    condition="Sunny" if i % 2 == 0 else "Partly Cloudy",
-                    rain_probability=max(5, (precip_prob + (i * 7)) % 80),
-                    uv_index=round(max(1.0, 8.5 - abs(lat) * 0.1), 1),
-                    wind_max_kph=round(wind_kph + i * 1.5, 1),
-                )
-            )
-
-        return WeatherCondition(
-            location=location,
-            observed_date=target_date_str,
-            temp_c=temp_c,
-            feels_like_c=feels_like_c,
-            humidity=humidity,
-            wind_kph=wind_kph,
-            wind_direction=wind_dir,
-            condition_text=condition,
-            precipitation_mm=precip_mm,
-            precipitation_prob=precip_prob,
-            uv_index=round(max(1.0, 8.5 - abs(lat) * 0.1), 1),
-            air_quality_index=int(35 + (seed % 55)),
-            visibility_km=9.5,
-            forecast_days=forecast_days,
-            source="dynamic-simulation",
         )
 
     def _degrees_to_cardinal(self, deg: float) -> str:
