@@ -5,68 +5,105 @@
 [![Vite](https://img.shields.io/badge/Vite-6.0+-646CFF.svg?logo=vite&logoColor=white)](https://vitejs.dev)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4+-38B2AC.svg?logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
+[![Pytest](https://img.shields.io/badge/Pytest-16%20Passed-brightgreen.svg?logo=pytest&logoColor=white)](https://pytest.org)
 
-**MausamAI** is an autonomous multi-agent decision support platform that converts complex meteorological data into personalized, actionable outdoor recommendations. Instead of simple temperature numbers, MausamAI orchestrates specialized AI agents to analyze intent, evaluate risks, suggest time windows, and curate gear checklists.
+**MausamAI** is an autonomous multi-agent decision support platform that converts complex meteorological data into personalized, actionable outdoor recommendations. Instead of simple temperature numbers or synthetic approximations, MausamAI orchestrates 5 specialized AI agents to plan tasks, acquire verified real-world telemetry, evaluate configurable transparent risk rules, synthesize comparative operational options with stated limitations, and validate decisions through an adversarial critic with bounded review loops.
 
 GitHub Repository: [https://github.com/NakulGupta-0608/Mausam-MultiAgent](https://github.com/NakulGupta-0608/Mausam-MultiAgent)
 
 ---
 
-## 🌟 Key Features
+## 🌟 Implemented Tasks & Features
 
-- **Natural Language Question Input**: Chat-style query interface with quick prompts (e.g., *"Can I plan an alpine day trek with clear visibility and moderate winds?"*).
-- **Target Location & Date Selector**: Quick presets for global cities or arbitrary locations with automatic geocoding and date scheduling.
-- **Dynamic Meteorological Telemetry**: Fetches real-time, non-hardcoded forecasts (via Open-Meteo API / dynamic physics-based fallback model) covering temperature, feels like, humidity, wind speed & direction, rain probability, UV index, and AQI.
-- **Analysis Progress Panel**: Real-time visual feedback tracking each stage of the multi-agent pipeline.
-- **Synthesized Recommendation Card**:
-  - Outdoor suitability score (0–100)
-  - Clear categorical verdict (*Optimal*, *Caution*, *Unfavorable*, *Severe*)
-  - Activity feasibility window and backup alternatives
-  - Dynamic packing checklist with interactive checkable items
-  - Categorized atmospheric hazard and mitigation warnings
-- **Saved Expeditions & Plans**: Pin, review, and manage weather plans directly from the dashboard.
-- **Notification Center**: Real-time severe weather advisories, seasonal warnings, and system health status.
-- **Agent Execution Trace**: Full observability with millisecond duration metrics, status tags, and inspectable input/output payloads for every agent step.
+### 1. Initial Full-Stack Foundation (Task 1)
+- **FastAPI Modular Backend**: Structured cleanly into `agents/`, `orchestration/`, `tools/`, `monitoring/`, `storage/`, and `api/routes/`.
+- **Modern Responsive Dashboard**: React + Vite + Tailwind CSS featuring natural-language chat input, location and date selection, progress ticker, recommendation cards, saved plans, notification drawer, and agent trace.
+- **Environment Management**: Robust Pydantic settings with `.env.example` templates.
+
+### 2. Empirical Weather API Integration (Task 2)
+- **Zero Synthetic Fabrication**: Live Open-Meteo telemetry querying with strict Pydantic schema validation. Never invents values or substitutes unverified mock numbers.
+- **Resilience & Bounded Retries**: Max 2 retries with exponential backoff on HTTP/network timeouts.
+- **Domain Exceptions**: Distinct typed error classes (`LocationNotFoundException`, `WeatherApiTimeoutException`, `WeatherApiErrorException`, `MalformedResponseException`).
+- **Visible Degraded State**: Displays actionable UI (`WeatherDegradedState.jsx`) on failure with error codes, retried counts, and fallback suggestions.
+
+### 3. Multi-Agent 5-Component Architecture (Task 3 & 4)
+- **Shared State Orchestrator**: `WeatherIntelligencePipeline` coordinates state across all 5 agents.
+- **Review Capping at 2 Cycles**: Critic review loops are strictly capped at 2 iterations to eliminate infinite loops.
+- **Budget & Stopping Conditions**: Hard budget ceilings on execution steps, time duration, and cost estimation.
+- **Audit Trace**: Every agent records action, input, output, duration in ms, and explicit reasoning.
+
+### 4. User Experience & Real-Time SSE Streaming (Task 5)
+- **Server-Sent Events (SSE)**: `POST /api/analysis/stream` streams live task dispatches directly from the backend to the frontend.
+- **Genuine Progress Bar**: Replaced client-side `setTimeout` timers with actual agent lifecycle events.
+- **Decision Output Synthesis**:
+  - Suitability score ($0-100$) and verdict badges (*Optimal*, *Caution*, *Unfavorable*, *Severe*).
+  - Grounded empirical evidence citations linking decision points to observed telemetry.
+  - Comparative operational options (Primary Window, Dawn Window, Sheltered/Indoor Backup) with pros/cons.
+  - Stated forecast limitations disclosing meteorological horizon boundaries.
+- **Expandable Decision Trace**: Displays agent name, action, status, review decision, retries, duration, and reasoning.
+- **Insufficient-Data UI**: Dedicated `InsufficientDataState.jsx` when Critic halts on `NEEDS_MORE_DATA`.
+- **Zero Mock Results**: Pre-seeded fake plans purged; saved plans only contain genuine user-saved records.
 
 ---
 
-## 🏗️ Multi-Agent Architecture
+## 🏗️ 5-Component Multi-Agent Architecture
 
 ```
-[ User Input: Query + Location + Date ]
-                   │
-                   ▼
-┌──────────────────────────────────────────────┐
-│       WeatherIntelligencePipeline            │
-│  (Orchestration & Trace Telemetry Engine)    │
-└──────────────────────┬───────────────────────┘
+[ User Input: Query + Location + Target Date ]
                        │
-         ┌─────────────┼─────────────┐
-         ▼             ▼             ▼
-┌────────────────┐ ┌────────────────┐ ┌────────────────┐
-│ WeatherAnalyst │ │ActivityPlanner │ │  RiskAssessor  │
-│     Agent      │ │     Agent      │ │     Agent      │
-└────────┬───────┘ └────────┬───────┘ └────────┬───────┘
-         │                  │                  │
-         │ Geocoding &      │ Feasibility,     │ Hazard alerts &│
-         │ Telemetry        │ Windows & Gear   │ Final Verdict │
-         └─────────────┬────┴─────────────┬────┘
-                       │                  │
-                       ▼                  ▼
-               [ Synthesis Card ]  [ Execution Trace ]
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 WeatherIntelligencePipeline                 │
+│         (Central Orchestrator, Budget & Stopping Engine)    │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+ 1. ┌──────────────┐                       2. ┌──────────────┐
+    │ PlannerAgent │                          │  DataAgent   │
+    │  (Intent &   │                          │(Real Weather │
+    │ Constraints) │                          │  Validation) │
+    └───────┬──────┘                          └───────┬──────┘
+            │ Structured Plan                         │ Verified Telemetry
+            └──────────────────┬──────────────────────┘
+                               │
+                               ▼
+                        3. ┌──────────────┐
+                           │ RiskAnalysis │
+                           │    Agent     │
+                           │(Rule Engine) │
+                           └───────┬──────┘
+                                   │ Penalties & Suitability Score
+                                   ▼
+                        4. ┌──────────────┐
+                           │Recommendation│ ◄────────────────┐
+                           │    Agent     │                  │ Revisions
+                           │ (3 Options)  │                  │ (Capped at 2)
+                           └───────┬──────┘                  │
+                                   │ Draft Decision          │
+                                   ▼                         │
+                        5. ┌──────────────┐                  │
+                           │ CriticAgent  │                  │
+                           │(Verification)│ ──[ REJECT ]─────┘
+                           └───────┬──────┘
+                                   │
+                     ┌─────────────┴─────────────┐
+                     │                           │
+              [ APPROVE ]               [ NEEDS_MORE_DATA ]
+                     │                           │
+                     ▼                           ▼
+          [ Final Decision Card ]     [ Insufficient Data State ]
 ```
 
-### Agent Roles
+### Agent Roles & Responsibilities
 
-1. **`WeatherAnalystAgent`** (`backend/app/agents/weather_analyst.py`):
-   - Resolves geographic coordinates using `geo_service`.
-   - Queries dynamic atmospheric providers and computes the baseline outdoor comfort index.
-2. **`ActivityPlannerAgent`** (`backend/app/agents/activity_planner.py`):
-   - Categorizes user activity intent (trekking, endurance sports, outdoor gatherings, photography, etc.).
-   - Computes feasibility windows, backup alternatives, and dynamic gear requirements.
-3. **`RiskAssessorAgent`** (`backend/app/agents/risk_assessor.py`):
-   - Scans for adverse weather conditions (precipitation squalls, wind gusts, extreme UV, poor AQI).
-   - Generates hazard mitigation advice and determines the final verdict badge.
+| Agent Name | Primary Action | Responsibility |
+|---|---|---|
+| **PlannerAgent** | `DECONSTRUCT_USER_REQUEST` | Deconstructs natural-language queries into structured task plans (activity, sub-goals, environmental thresholds). |
+| **DataAgent** | `ACQUIRE_VERIFIED_TELEMETRY` | Geocodes target coordinates and queries real-world Open-Meteo models with schema validation and bounded retries. |
+| **RiskAnalysisAgent** | `EVALUATE_CONFIGURABLE_RULES` | Evaluates transparent, configurable risk rules against empirical precipitation, wind, UV, and thermal comfort. |
+| **RecommendationAgent** | `SYNTHESIZE_DECISION_AND_COMPARE_OPTIONS` | Formulates 3 comparative operational options, cites grounded telemetry evidence, and articulates stated limitations. |
+| **CriticAgent** | `VALIDATE_RECOMMENDATION_AGAINST_SOURCE_DATA` | Adversarially fact-checks recommendations against source data; returns `APPROVE`, `REJECT` (with correction request), or `NEEDS_MORE_DATA`. |
 
 ---
 
@@ -76,70 +113,75 @@ GitHub Repository: [https://github.com/NakulGupta-0608/Mausam-MultiAgent](https:
 MAUSAM/
 ├── .gitignore                      # Git ignore rules (Python, Node, logs, envs)
 ├── .env.example                    # Global environment template
-├── README.md                       # Documentation & setup guide
+├── pytest.ini                      # Pytest configuration
+├── README.md                       # Comprehensive project documentation
 │
 ├── backend/                        # Python FastAPI Backend
 │   ├── .env.example                # Backend environment configuration template
-│   ├── .env                        # Local development settings
 │   ├── requirements.txt            # Python dependencies
 │   ├── main.py                     # FastAPI application entrypoint
-│   └── app/
-│       ├── core/
-│       │   └── config.py           # Pydantic Settings configuration
-│       ├── schemas/                # Pydantic data schemas
-│       │   ├── weather.py          # GeoLocation, WeatherCondition, Forecast
-│       │   ├── analysis.py         # AnalysisRequest, AnalysisResponse, Trace
-│       │   ├── plan.py             # SavedPlan, CreatePlanRequest
-│       │   └── notification.py     # NotificationItem
-│       ├── tools/                  # Pluggable external tools & providers
-│       │   ├── geo_service.py      # Geocoding service with online/fallback
-│       │   └── weather_api.py      # Dynamic Open-Meteo & meteorological physics model
-│       ├── agents/                 # Specialized autonomous agents
-│       │   ├── base.py             # BaseAgent abstract class
-│       │   ├── weather_analyst.py  # Atmospheric intelligence agent
-│       │   ├── activity_planner.py # Activity feasibility agent
-│       │   └── risk_assessor.py    # Hazard evaluation agent
-│       ├── orchestration/          # Multi-agent coordination
-│       │   ├── state.py            # WorkflowState shared context
-│       │   └── workflow.py         # Pipeline orchestrator
-│       ├── monitoring/             # Observability & tracing
-│       │   ├── logger.py           # Structured logging
-│       │   └── tracer.py           # Agent execution trace collector
-│       ├── storage/                # Data persistence
-│       │   └── memory_store.py     # Thread-safe in-memory store for plans & alerts
-│       └── api/
-│           ├── __init__.py         # Combined API router
-│           └── routes/
-│               ├── health.py       # Health check route
-│               ├── weather.py      # Weather lookup route
-│               ├── analysis.py     # Analysis pipeline route
-│               ├── plans.py        # Saved plans CRUD routes
-│               └── notifications.py# Notification center routes
+│   ├── app/
+│   │   ├── core/
+│   │   │   ├── config.py           # Pydantic Settings configuration
+│   │   │   └── exceptions.py       # Domain-specific typed exceptions
+│   │   ├── schemas/                # Pydantic data schemas
+│   │   │   ├── weather.py          # GeoLocation, WeatherCondition, Forecast
+│   │   │   ├── analysis.py         # StructuredPlan, RuleEvaluation, Trace, etc.
+│   │   │   ├── plan.py             # SavedPlan, CreatePlanRequest
+│   │   │   └── notification.py     # NotificationItem
+│   │   ├── tools/                  # Pluggable external tools & providers
+│   │   │   ├── geo_service.py      # Geocoding service with bounded retries
+│   │   │   └── weather_api.py      # Open-Meteo client with Pydantic validation
+│   │   ├── agents/                 # Specialized autonomous agents
+│   │   │   ├── base.py             # BaseAgent abstract class
+│   │   │   ├── planner.py          # PlannerAgent: intent decomposition
+│   │   │   ├── data_agent.py       # DataAgent: empirical telemetry
+│   │   │   ├── risk_analyst.py     # RiskAnalysisAgent: transparent rules
+│   │   │   ├── recommendation.py   # RecommendationAgent: options & evidence
+│   │   │   └── critic.py           # CriticAgent: adversarial critique
+│   │   ├── orchestration/          # Multi-agent coordination
+│   │   │   ├── state.py            # WorkflowState shared context
+│   │   │   └── workflow.py         # Pipeline orchestrator & SSE generator
+│   │   ├── monitoring/             # Observability & tracing
+│   │   │   ├── logger.py           # Structured logging
+│   │   │   └── tracer.py           # Agent execution trace collector
+│   │   ├── storage/                # Data persistence
+│   │   │   └── memory_store.py     # Thread-safe in-memory store
+│   │   └── api/
+│   │       ├── __init__.py         # Combined API router
+│   │       └── routes/
+│   │           ├── health.py       # Health check route
+│   │           ├── weather.py      # Weather lookup route
+│   │           ├── analysis.py     # Synchronous & SSE streaming analysis
+│   │           ├── plans.py        # Saved plans CRUD routes
+│   │           └── notifications.py# Notification center routes
+│   └── tests/                      # Automated test suite
+│       ├── test_weather_agent.py   # Weather API, retries, and error handling tests
+│       └── test_multi_agent_workflow.py # Approval, critique, budget & SSE tests
 │
 └── frontend/                       # React + Vite + Tailwind CSS Frontend
-    ├── index.html                  # HTML entrypoint with modern fonts
+    ├── index.html                  # HTML entrypoint
     ├── package.json                # Frontend dependencies & scripts
     ├── vite.config.js              # Vite config with API proxy
     ├── tailwind.config.js          # Tailwind CSS design system
-    ├── postcss.config.js           # PostCSS configuration
-    ├── .env.example                # Frontend environment template
-    ├── .env                        # Frontend environment variables
-    └── src/
+    ├── src/
         ├── main.jsx                # React DOM mounting
-        ├── App.jsx                 # Main application dashboard
-        ├── index.css               # Tailwind directives & glassmorphic styling
+        ├── App.jsx                 # Dashboard with live SSE integration
+        ├── index.css               # Tailwind directives & glassmorphic styles
         ├── api/
-        │   └── client.js           # Fetch API client connecting to backend
+        │   └── client.js           # API client with analyzeWeatherStream
         └── components/
             ├── Header.jsx              # Brand, live health badge, notifications
             ├── ChatQueryInput.jsx      # Chat-style natural language query input
             ├── LocationDateForm.jsx    # Location input, date picker & analyze button
             ├── AnalysisProgress.jsx    # Real-time multi-agent progression bar
-            ├── WeatherOverview.jsx     # Atmospheric metrics & 5-day forecast
-            ├── RecommendationCard.jsx  # Verdict badge, score, feasibility, packing
+            ├── WeatherOverview.jsx     # Verified atmospheric telemetry overview
+            ├── WeatherDegradedState.jsx# Graceful degraded/error state display
+            ├── InsufficientDataState.jsx# Critic NEEDS_MORE_DATA state display
+            ├── RecommendationCard.jsx  # Verdict badge, score, 3 options, evidence
             ├── SavedPlans.jsx          # Pinned plans & expedition cards
             ├── NotificationCenter.jsx  # Slide-over alert & advisory center
-            └── AgentExecutionTrace.jsx # Collapsible step-by-step telemetry viewer
+            └── AgentExecutionTrace.jsx # Expandable decision trace & budget audit
 ```
 
 ---
@@ -148,8 +190,8 @@ MAUSAM/
 
 ### Prerequisites
 
-- **Python**: 3.10 or higher
-- **Node.js**: 18.0 or higher
+- **Python**: 3.10+ (tested on Python 3.13)
+- **Node.js**: 18.0+
 - **npm** or **yarn**
 
 ---
@@ -179,10 +221,9 @@ MAUSAM/
 
 4. Start the FastAPI development server:
    ```bash
-   # From the project root:
    python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
    ```
-   *The backend will be available at `http://127.0.0.1:8000` with interactive API docs at `http://127.0.0.1:8000/docs`.*
+   *Interactive API docs available at `http://127.0.0.1:8000/docs`.*
 
 ---
 
@@ -202,7 +243,30 @@ MAUSAM/
    ```bash
    npm run dev
    ```
-   *The frontend dashboard will be running at `http://localhost:5173`.*
+   *Dashboard available at `http://127.0.0.1:5173`.*
+
+---
+
+## 🧪 Testing Suite
+
+MausamAI includes 16 automated tests covering unit tools, resilience retries, multi-agent approval/rejection loops, budget enforcement, and SSE streaming.
+
+Run all tests:
+```bash
+# From the project root:
+.\backend\.venv\Scripts\pytest
+```
+
+### Test Coverage Highlights
+- `test_weather_agent_success`: Real Open-Meteo telemetry fetch and Pydantic validation.
+- `test_invalid_location_raises_typed_exception`: Verified `LocationNotFoundException`.
+- `test_weather_api_timeout_bounded_retries`: Exponential backoff retries on timeouts.
+- `test_multi_agent_approval_path`: Full 5-agent execution with Critic `APPROVE`.
+- `test_critic_rejection_and_correction_cycle`: Flawed draft triggers Critic `REJECT` and correction loop.
+- `test_critic_insufficient_data_rejection`: Incomplete telemetry triggers `NEEDS_MORE_DATA`.
+- `test_orchestrator_review_capping_at_two`: Enforces review cap at 2 iterations.
+- `test_multi_agent_streaming_workflow_e2e`: E2E Server-Sent Events (SSE) stream validation.
+- `test_zero_hardcoded_plans_on_startup`: Verifies clean initial state with zero mock data.
 
 ---
 
@@ -211,23 +275,15 @@ MAUSAM/
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/health` | Service status, version, and active agents |
-| `GET` | `/api/weather/current?location={city}&date={YYYY-MM-DD}` | Current and 5-day weather telemetry |
-| `POST` | `/api/analysis` | Executes the multi-agent pipeline (`query`, `location`, `target_date`) |
-| `GET` | `/api/plans` | Retrieves all saved plans |
-| `POST` | `/api/plans` | Saves an expedition plan |
+| `GET` | `/api/weather?location={city}&date={YYYY-MM-DD}` | Live verified weather telemetry |
+| `POST` | `/api/analysis` | Synchronous 5-agent pipeline execution |
+| `POST` | `/api/analysis/stream` | Real-time Server-Sent Events (SSE) streaming pipeline |
+| `GET` | `/api/plans` | Retrieves user-saved plans |
+| `POST` | `/api/plans` | Saves a verified decision plan |
 | `DELETE` | `/api/plans/{id}` | Deletes a saved plan |
-| `GET` | `/api/notifications` | Retrieves weather advisories and notices |
-| `PATCH`| `/api/notifications/{id}/read` | Marks a notification as read |
+| `GET` | `/api/notifications` | Retrieves system advisories |
+| `PATCH`| `/api/notifications/{id}/read` | Marks notification as read |
 | `POST` | `/api/notifications/read-all` | Marks all notifications as read |
-
----
-
-## 🧩 Next Steps & Roadmap
-
-- [ ] Connect Gemini 1.5 / 2.0 or OpenAI LLM API to agents for advanced reasoning.
-- [ ] Add vector store memory for long-term user preferences and historical weather patterns.
-- [ ] Integrate radar and satellite precipitation map overlays.
-- [ ] Implement push notifications / WebSockets for live severe weather updates.
 
 ---
 
