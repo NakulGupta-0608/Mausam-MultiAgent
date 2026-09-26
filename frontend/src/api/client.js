@@ -60,6 +60,73 @@ export const apiClient = {
     return res.json();
   },
 
+  async analyzeWeatherStream({ query, location, target_date }, onEvent) {
+    const res = await fetch(`${BASE_URL}/analysis/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: query.trim(),
+        location: location.trim(),
+        target_date: target_date || undefined,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorJson = await res.json().catch(() => null);
+      throw new WeatherApiError(res.status, errorJson, `Streaming analysis request failed (${res.status})`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop(); // save trailing partial chunk
+
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (!trimmed) continue;
+        const lines = trimmed.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data:')) {
+            const dataStr = line.slice(5).trim();
+            if (dataStr) {
+              try {
+                const parsed = JSON.parse(dataStr);
+                onEvent(parsed);
+              } catch (e) {
+                console.error('SSE JSON parse error:', e, dataStr);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const lines = buffer.trim().split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data:')) {
+          const dataStr = line.slice(5).trim();
+          if (dataStr) {
+            try {
+              const parsed = JSON.parse(dataStr);
+              onEvent(parsed);
+            } catch (e) {
+              console.error('SSE trailing JSON parse error:', e, dataStr);
+            }
+          }
+        }
+      }
+    }
+  },
+
   async getWeather(location, date) {
     const cleanLocation = location.trim();
     const params = new URLSearchParams({ location: cleanLocation });

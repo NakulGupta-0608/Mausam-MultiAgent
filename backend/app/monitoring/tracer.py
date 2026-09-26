@@ -26,6 +26,8 @@ class AgentExecutionTracer:
         summary: str,
         action: str = "EXECUTE",
         reasoning: str = "",
+        review_decision: Optional[str] = None,
+        retries: int = 0,
         inputs: Optional[Dict[str, Any]] = None,
         outputs: Optional[Dict[str, Any]] = None,
     ) -> AgentTraceStep:
@@ -36,6 +38,8 @@ class AgentExecutionTracer:
             action=action,
             reasoning=reasoning,
             status=status,
+            review_decision=review_decision,
+            retries=retries,
             duration_ms=round(duration_ms, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
             summary=summary,

@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from backend.app.schemas.analysis import AnalysisRequest, AnalysisResponse
 from backend.app.schemas.weather import WeatherErrorResponse
 from backend.app.orchestration.workflow import pipeline
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/analysis", tags=["Analysis"])
     }
 )
 async def analyze_weather_intent(request: AnalysisRequest):
-    """Executes the multi-agent pipeline to generate comprehensive weather intelligence."""
+    """Executes the multi-agent pipeline synchronously."""
     clean_location = request.location.strip()
     clean_query = request.query.strip()
 
@@ -81,3 +82,25 @@ async def analyze_weather_intent(request: AnalysisRequest):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
+
+
+@router.post("/stream")
+async def analyze_weather_intent_stream(request: AnalysisRequest):
+    """Executes the multi-agent pipeline and streams live Server-Sent Events (SSE) of actual tasks running."""
+    clean_location = request.location.strip()
+    clean_query = request.query.strip()
+
+    if not clean_location:
+        raise HTTPException(status_code=400, detail="Location field cannot be empty.")
+    if not clean_query:
+        raise HTTPException(status_code=400, detail="Query field cannot be empty.")
+
+    return StreamingResponse(
+        pipeline.run_stream(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )

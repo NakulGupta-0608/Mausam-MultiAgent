@@ -72,6 +72,8 @@ class AgentTraceStep(BaseModel):
     action: str = Field(default="EXECUTE", description="Action performed by agent")
     reasoning: str = Field(default="", description="Explicit chain-of-thought or heuristic justification")
     status: str  # "completed", "running", "failed"
+    review_decision: Optional[str] = Field(default=None, description="Review decision for critique steps (APPROVE, REJECT, NEEDS_MORE_DATA)")
+    retries: int = Field(default=0, description="Retry attempts executed during this step")
     duration_ms: float
     timestamp: str
     summary: str

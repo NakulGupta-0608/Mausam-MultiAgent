@@ -231,3 +231,120 @@ async def test_orchestrator_review_capping_at_two():
     assert res.stopping_condition.reviews_count == 2
     assert res.stopping_condition.stopped_early is True
     assert "capped at maximum limit (2 iterations)" in res.stopping_condition.reason
+
+
+# ============================================================================
+# 5. USER EXPERIENCE & REAL-TIME STREAMING WORKFLOW (E2E)
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_multi_agent_streaming_workflow_e2e():
+    """E2E streaming: Verifies genuine tasks running via SSE stream with zero synthetic data."""
+    import json
+    req = AnalysisRequest(
+        query="Can I plan an outdoor photography walk at sunrise?",
+        location="Shimla",
+        target_date="2026-09-27"
+    )
+
+    events = []
+    async for chunk in pipeline.run_stream(req):
+        for line in chunk.strip().split("\n"):
+            if line.startswith("data:"):
+                payload = json.loads(line[5:].strip())
+                events.append(payload)
+
+    # 1. Assert start event
+    assert events[0]["type"] == "start"
+    assert events[0]["location"] == "Shimla"
+
+    # 2. Assert progress events for all 5 stages
+    stage_ids = [e.get("stage_id") for e in events if e.get("type") == "progress"]
+    assert "planner" in stage_ids
+    assert "data" in stage_ids
+    assert "risk" in stage_ids
+    assert "recommender" in stage_ids
+    assert "critic" in stage_ids
+
+    # 3. Assert Data step emitted verified live telemetry
+    data_completed = next(e for e in events if e.get("stage_id") == "data" and e.get("status") == "completed")
+    assert data_completed["telemetry"]["source"] == "open-meteo-live"
+    assert data_completed["weather"] is not None
+    assert data_completed["weather"]["temp_c"] is not None
+
+    # 4. Assert Critic step emitted review decision
+    critic_completed = next(e for e in events if e.get("stage_id") == "critic" and e.get("status") == "completed")
+    assert critic_completed["critic_verdict"] == "APPROVE"
+
+    # 5. Assert complete event with full response
+    complete_event = next(e for e in events if e.get("type") == "complete")
+    result = complete_event["result"]
+    assert result["location"] == "Shimla"
+    assert len(result["recommendation"]["options_comparison"]) >= 2
+    assert len(result["recommendation"]["evidence_citations"]) >= 3
+    assert len(result["recommendation"]["stated_limitations"]) >= 3
+
+    # 6. Assert Decision Trace steps contain name, action, status, review_decision, retries, and duration
+    trace = result["trace"]
+    assert len(trace) >= 5
+    for step in trace:
+        assert "agent_name" in step and step["agent_name"]
+        assert "action" in step and step["action"]
+        assert "status" in step and step["status"]
+        assert "duration_ms" in step and step["duration_ms"] >= 0
+        assert "reasoning" in step and step["reasoning"]
+        assert "retries" in step
+        # Critic steps must have review_decision
+        if step["agent_name"] == "CriticAgent":
+            assert step["review_decision"] in ["APPROVE", "REJECT", "NEEDS_MORE_DATA"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_invalid_location_yields_structured_error():
+    """Failure mode: Non-existent location yields error event without fabricated fallback."""
+    import json
+    req = AnalysisRequest(
+        query="Outdoor yoga session",
+        location="XyZNonExistentLoc9988",
+        target_date="2026-09-27"
+    )
+
+    events = []
+    async for chunk in pipeline.run_stream(req):
+        for line in chunk.strip().split("\n"):
+            if line.startswith("data:"):
+                payload = json.loads(line[5:].strip())
+                events.append(payload)
+
+    # Must contain error event with LOCATION_NOT_FOUND
+    error_event = next((e for e in events if e.get("type") == "error"), None)
+    assert error_event is not None
+    assert error_event["error"]["error_code"] == "LOCATION_NOT_FOUND"
+    assert error_event["error"]["retries_attempted"] >= 0
+
+
+def test_zero_hardcoded_plans_on_startup():
+    """Verify saved plans start empty so zero fake results or sample plans are shown."""
+    from backend.app.storage.memory_store import store
+    plans = store.list_plans()
+    assert len(plans) == 0
+
+
+def test_fastapi_stream_endpoint():
+    """Verify the /api/analysis/stream endpoint produces a valid event-stream."""
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/analysis/stream",
+        json={
+            "query": "Is it safe to hike?",
+            "location": "Shimla",
+            "target_date": "2026-09-27"
+        }
+    )
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    assert "data:" in response.text
+

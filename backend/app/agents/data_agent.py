@@ -44,6 +44,7 @@ class DataAgent(BaseAgent):
                 reasoning=reasoning,
                 status="completed",
                 duration_ms=duration,
+                retries=0,
                 summary=f"Captured verified live observation: {weather.condition_text} at {weather.temp_c}°C in {state.geo.name}.",
                 inputs={"location": state.location_name, "date": state.target_date},
                 outputs={
@@ -70,6 +71,7 @@ class DataAgent(BaseAgent):
                 reasoning=f"External meteorological service halted request with code {wse.error_code}. Bounded retries exhausted.",
                 status="failed",
                 duration_ms=duration,
+                retries=wse.retries_attempted,
                 summary=f"Failed to acquire live data: [{wse.error_code}] {wse.message}",
                 inputs={"location": state.location_name, "date": state.target_date},
                 outputs={

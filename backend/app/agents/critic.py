@@ -54,6 +54,8 @@ class CriticAgent(BaseAgent):
                 reasoning="Data sufficiency gate failed: Missing mandatory atmospheric fields.",
                 status="failed",
                 duration_ms=duration,
+                review_decision="NEEDS_MORE_DATA",
+                retries=iteration - 1,
                 summary="Critique verdict: NEEDS_MORE_DATA (Missing required telemetry fields).",
                 inputs={"has_weather": bool(weather)},
                 outputs={"verdict": review.verdict, "critique_score": review.critique_score},
@@ -144,6 +146,8 @@ class CriticAgent(BaseAgent):
             reasoning=reasoning,
             status="completed" if critic_verdict == "APPROVE" else "completed",
             duration_ms=duration,
+            review_decision=critic_verdict,
+            retries=iteration - 1,
             summary=f"Critique completed: {critic_verdict} (Confidence: {critique_score}/100). Iteration {iteration}.",
             inputs={"verdict_reviewed": verdict, "outdoor_score": outdoor_score, "iteration": iteration},
             outputs={

@@ -3,9 +3,10 @@ import { apiClient, WeatherApiError } from './api/client';
 import Header from './components/Header';
 import ChatQueryInput from './components/ChatQueryInput';
 import LocationDateForm from './components/LocationDateForm';
-import AnalysisProgress from './components/AnalysisProgress';
+import AnalysisProgress, { INITIAL_STAGES } from './components/AnalysisProgress';
 import WeatherOverview from './components/WeatherOverview';
 import WeatherDegradedState from './components/WeatherDegradedState';
+import InsufficientDataState from './components/InsufficientDataState';
 import RecommendationCard from './components/RecommendationCard';
 import SavedPlans from './components/SavedPlans';
 import NotificationCenter from './components/NotificationCenter';
@@ -21,11 +22,23 @@ export default function App() {
   // Loading flags
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSearchingWeather, setIsSearchingWeather] = useState(false);
-  const [analysisStage, setAnalysisStage] = useState(0);
+
+  // Live Multi-Agent Streaming Progress state
+  const [analysisStages, setAnalysisStages] = useState(() => {
+    const init = {};
+    INITIAL_STAGES.forEach((s) => {
+      init[s.id] = { status: 'pending' };
+    });
+    return init;
+  });
+  const [liveMessage, setLiveMessage] = useState('');
+  const [activeAgent, setActiveAgent] = useState('');
+  const [reviewNotice, setReviewNotice] = useState(null);
 
   // Data states
   const [directWeather, setDirectWeather] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [insufficientDataResult, setInsufficientDataResult] = useState(null);
   const [weatherError, setWeatherError] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -82,6 +95,7 @@ export default function App() {
     setIsSearchingWeather(true);
     setErrorMsg(null);
     setWeatherError(null);
+    setInsufficientDataResult(null);
 
     try {
       const data = await apiClient.getWeather(loc, targetDate);
@@ -116,7 +130,7 @@ export default function App() {
     }
   };
 
-  // Full Multi-Agent Intelligence Pipeline
+  // Full Multi-Agent Intelligence Pipeline via Real-Time Server-Sent Events (SSE)
   const handleAnalyze = async () => {
     const loc = location.trim();
     if (!loc) {
@@ -130,28 +144,109 @@ export default function App() {
 
     setErrorMsg(null);
     setWeatherError(null);
+    setInsufficientDataResult(null);
+    setReviewNotice(null);
+    setAnalysisResult(null);
     setIsAnalyzing(true);
     setIsSavedCurrent(false);
-    setAnalysisStage(0);
 
-    const stageTimer1 = setTimeout(() => setAnalysisStage(1), 400);
-    const stageTimer2 = setTimeout(() => setAnalysisStage(2), 900);
+    // Reset stages to pending state
+    const initialStages = {};
+    INITIAL_STAGES.forEach((s) => {
+      initialStages[s.id] = { status: 'pending' };
+    });
+    setAnalysisStages(initialStages);
+    setLiveMessage(`Dispatching 5-agent pipeline for ${loc}...`);
+    setActiveAgent('PlannerAgent');
 
     try {
-      const result = await apiClient.analyzeWeather({
-        query,
-        location: loc,
-        target_date: date,
-      });
+      await apiClient.analyzeWeatherStream(
+        {
+          query,
+          location: loc,
+          target_date: date,
+        },
+        (event) => {
+          if (event.type === 'start') {
+            setLiveMessage(event.message || '5-agent pipeline initialized...');
+          } else if (event.type === 'progress') {
+            if (event.agent_name) {
+              setActiveAgent(event.agent_name);
+            }
 
-      setAnalysisResult(result);
-      setDirectWeather(result.weather);
-      setBackendOnline(true);
-      setWeatherError(null);
+            if (event.status === 'running') {
+              setLiveMessage(event.message || `${event.agent_name} is running...`);
+              setAnalysisStages((prev) => ({
+                ...prev,
+                [event.stage_id]: {
+                  status: 'running',
+                  action: event.action,
+                  agent: event.agent_name,
+                },
+              }));
+            } else if (event.status === 'completed') {
+              setLiveMessage(event.summary || `${event.agent_name} completed.`);
+              setAnalysisStages((prev) => ({
+                ...prev,
+                [event.stage_id]: {
+                  status: 'completed',
+                  action: event.action,
+                  duration_ms: event.duration_ms,
+                  summary: event.summary,
+                  reasoning: event.reasoning,
+                },
+              }));
+
+              // When DataAgent acquires verified telemetry, render WeatherOverview immediately
+              if (event.weather) {
+                setDirectWeather(event.weather);
+                setWeatherError(null);
+              }
+            }
+          } else if (event.type === 'review_loop') {
+            setReviewNotice({
+              iteration: event.iteration,
+              message: event.message,
+              correctionRequest: event.correction_request,
+            });
+            setLiveMessage(event.message);
+          } else if (event.type === 'insufficient_data') {
+            setInsufficientDataResult(event);
+            setAnalysisStages((prev) => ({
+              ...prev,
+              critic: {
+                status: 'failed',
+                action: 'VALIDATE_RECOMMENDATION_AGAINST_SOURCE_DATA',
+                summary: 'Critic halted pipeline: Insufficient empirical data',
+              },
+            }));
+            setIsAnalyzing(false);
+          } else if (event.type === 'complete') {
+            setAnalysisResult(event.result);
+            setDirectWeather(event.result.weather);
+            setBackendOnline(true);
+            setWeatherError(null);
+            setIsAnalyzing(false);
+            setActiveAgent('');
+          } else if (event.type === 'error') {
+            setIsAnalyzing(false);
+            setActiveAgent('');
+            setWeatherError({
+              errorCode: event.error?.error_code || 'PIPELINE_ERROR',
+              message: event.error?.message || 'Pipeline encountered an error.',
+              detail: event.error?.detail || null,
+              locationSearched: event.error?.location_searched || loc,
+              retriesAttempted: event.error?.retries_attempted || 0,
+              timestamp: event.error?.timestamp || new Date().toISOString(),
+            });
+          }
+        }
+      );
     } catch (err) {
-      console.error('Analysis execution failed:', err);
+      console.error('Multi-agent stream execution failed:', err);
+      setIsAnalyzing(false);
+      setActiveAgent('');
       setAnalysisResult(null);
-      setDirectWeather(null);
 
       if (err instanceof WeatherApiError) {
         setWeatherError({
@@ -172,8 +267,6 @@ export default function App() {
         });
       }
     } finally {
-      clearTimeout(stageTimer1);
-      clearTimeout(stageTimer2);
       setIsAnalyzing(false);
     }
   };
@@ -255,8 +348,8 @@ export default function App() {
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
             Weather Intelligence Dashboard
           </h1>
-          <p className="text-sm text-slate-400 max-w-2xl">
-            Live atmospheric telemetry verified via Open-Meteo. Ask natural language questions about outdoor plans, and MausamAI’s multi-agent mesh evaluates physics, feasibility, and risks with zero simulated numbers.
+          <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
+            Live atmospheric telemetry verified via Open-Meteo. Ask natural language questions about outdoor plans, and MausamAI’s 5-agent mesh evaluates physics, feasibility, comparative options, and risks with zero simulated numbers.
           </p>
         </div>
 
@@ -297,10 +390,13 @@ export default function App() {
           />
         </div>
 
-        {/* Multi-Agent Analysis Progress Panel */}
+        {/* Real-time Multi-Agent Analysis Progress Panel */}
         <AnalysisProgress
           isAnalyzing={isAnalyzing}
-          currentStageIndex={analysisStage}
+          stages={analysisStages}
+          liveMessage={liveMessage}
+          activeAgent={activeAgent}
+          reviewNotice={reviewNotice}
         />
 
         {/* Visible Unavailable / Degraded State when Weather Fails */}
@@ -312,13 +408,22 @@ export default function App() {
           />
         )}
 
+        {/* Insufficient Data State when Critic halts on missing empirical telemetry */}
+        {!weatherError && insufficientDataResult && (
+          <InsufficientDataState
+            data={insufficientDataResult}
+            onRetry={handleAnalyze}
+            onAdjustDate={() => setDate(new Date().toISOString().split('T')[0])}
+          />
+        )}
+
         {/* Weather Overview (Displayed when weather data is valid and no error) */}
         {!weatherError && directWeather && (
           <WeatherOverview weather={directWeather} />
         )}
 
         {/* Analysis Results Display (Recommendation & Execution Trace) */}
-        {!weatherError && analysisResult && (
+        {!weatherError && !insufficientDataResult && analysisResult && (
           <div className="space-y-8 animate-fadeIn">
             <RecommendationCard
               recommendation={analysisResult.recommendation}

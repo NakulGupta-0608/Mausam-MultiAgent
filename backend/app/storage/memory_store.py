@@ -14,23 +14,11 @@ class MemoryStore:
         self._seed_initial_data()
 
     def _seed_initial_data(self):
-        # Seed initial sample plans to populate the dashboard nicely
-        sample_plan = SavedPlan(
-            id=str(uuid.uuid4())[:8],
-            title="Weekend Himalayan Day Hike",
-            location="Manali, HP",
-            target_date="2026-09-28",
-            query="Plan an alpine day trek with clear visibility and moderate winds",
-            verdict="Optimal",
-            outdoor_score=88,
-            summary="Clear alpine skies expected in morning. Cool breeze, low UV risk early. Mild cold front approaching dusk.",
-            packing_checklist=["Windbreaker", "Trekking poles", "Thermal base layer", "Hydration pack (2L)"],
-            tags=["Trekking", "Mountain", "High Altitude"],
-            created_at=datetime.now(timezone.utc).isoformat(),
-        )
-        self._plans[sample_plan.id] = sample_plan
+        # Plans start completely empty so no fabricated or mock data is ever shown
+        # Only plans explicitly saved by users from live agent executions will populate here
+        self._plans = {}
 
-        # Seed sample notifications
+        # Seed initial system telemetry and advisory notifications
         sample_notifications = [
             NotificationItem(
                 id=str(uuid.uuid4())[:8],
