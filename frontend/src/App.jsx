@@ -11,6 +11,7 @@ import RecommendationCard from './components/RecommendationCard';
 import SavedPlans from './components/SavedPlans';
 import NotificationCenter from './components/NotificationCenter';
 import AgentExecutionTrace from './components/AgentExecutionTrace';
+import { registerServiceWorker } from './utils/pushNotifications';
 import { AlertCircle, Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -53,6 +54,7 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
+    registerServiceWorker();
     checkHealth();
     fetchPlans();
     fetchNotifications();
@@ -594,6 +596,12 @@ export default function App() {
         notifications={notifications}
         onMarkRead={handleMarkNotifRead}
         onMarkAllRead={handleMarkAllNotifRead}
+        onRefreshNotifications={fetchNotifications}
+        onSelectPlan={(planId) => {
+          const p = savedPlans.find((plan) => plan.id === planId);
+          if (p) handleLoadPlan(p);
+        }}
+        savedPlans={savedPlans}
       />
     </div>
   );

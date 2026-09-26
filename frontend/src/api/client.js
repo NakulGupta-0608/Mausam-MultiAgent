@@ -214,8 +214,9 @@ export const apiClient = {
     return res.json();
   },
 
-  async getNotifications() {
-    const res = await fetch(`${BASE_URL}/notifications`);
+  async getNotifications(unreadOnly = false) {
+    const params = unreadOnly ? '?unread_only=true' : '';
+    const res = await fetch(`${BASE_URL}/notifications${params}`);
     if (!res.ok) throw new Error(`Fetch notifications failed: ${res.status}`);
     return res.json();
   },
@@ -233,6 +234,69 @@ export const apiClient = {
       method: 'POST',
     });
     if (!res.ok) throw new Error(`Mark all read failed: ${res.status}`);
+    return res.json();
+  },
+
+  async clearNotifications() {
+    const res = await fetch(`${BASE_URL}/notifications`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(`Clear notifications failed: ${res.status}`);
+    return res.json();
+  },
+
+  async getVapidPublicKey() {
+    const res = await fetch(`${BASE_URL}/notifications/vapid-public-key`);
+    if (!res.ok) throw new Error(`Fetch VAPID public key failed: ${res.status}`);
+    return res.json();
+  },
+
+  async subscribePush(subscriptionPayload) {
+    const res = await fetch(`${BASE_URL}/notifications/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscriptionPayload),
+    });
+    if (!res.ok) throw new Error(`Subscribe push failed: ${res.status}`);
+    return res.json();
+  },
+
+  async unsubscribePush(endpoint) {
+    const res = await fetch(`${BASE_URL}/notifications/unsubscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint }),
+    });
+    if (!res.ok) throw new Error(`Unsubscribe push failed: ${res.status}`);
+    return res.json();
+  },
+
+  async getNotificationPreferences() {
+    const res = await fetch(`${BASE_URL}/notifications/preferences`);
+    if (!res.ok) throw new Error(`Fetch preferences failed: ${res.status}`);
+    return res.json();
+  },
+
+  async updateNotificationPreferences(preferences) {
+    const res = await fetch(`${BASE_URL}/notifications/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(preferences),
+    });
+    if (!res.ok) throw new Error(`Update preferences failed: ${res.status}`);
+    return res.json();
+  },
+
+  async simulateNotification(payload) {
+    const res = await fetch(`${BASE_URL}/notifications/simulate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.detail || `Simulation failed: ${res.status}`);
+    }
     return res.json();
   },
 };

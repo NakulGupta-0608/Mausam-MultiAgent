@@ -14,6 +14,7 @@ from backend.app.tools.geo_service import geo_service
 from backend.app.monitoring.change_detector import change_detector, ChangeEvaluation
 from backend.app.monitoring.tracer import AgentExecutionTracer
 from backend.app.monitoring.logger import logger
+from backend.app.monitoring.push_service import push_service
 from backend.app.agents.planner import PlannerAgent
 from backend.app.agents.risk_analyst import RiskAnalysisAgent
 from backend.app.agents.recommendation import RecommendationAgent
@@ -214,15 +215,23 @@ class SmartMonitoringScheduler:
             plan.re_analysis_count += 1
             re_analyzed = True
 
-            # Dedupe repeat notifications
-            notification_emitted = self._dispatch_deduped_notification(
-                plan=plan,
-                evaluation=evaluation,
-                old_verdict=old_verdict,
-                new_verdict=new_verdict,
-                old_score=old_score,
-                new_score=new_score,
-            )
+            # Review-gated delivery: Only notify if Critic Agent approved the update
+            critic_verdict = updated_recommendation.get("critic_verdict", "APPROVE")
+            if critic_verdict != "APPROVE":
+                logger.warning(
+                    f"Notification suppressed for plan '{plan.subject}' ({plan.id}): "
+                    f"Critic review verdict was '{critic_verdict}' (review-gated delivery enforced)."
+                )
+                notification_emitted = False
+            else:
+                notification_emitted = self._dispatch_deduped_notification(
+                    plan=plan,
+                    evaluation=evaluation,
+                    old_verdict=old_verdict,
+                    new_verdict=new_verdict,
+                    old_score=old_score,
+                    new_score=new_score,
+                )
 
         # Save updated plan in SQLite database
         db.update_plan(plan)
@@ -322,6 +331,14 @@ class SmartMonitoringScheduler:
             f"Outdoor suitability adjusted from {old_score} ({old_verdict}) to {new_score} ({new_verdict})."
         )
 
+        prev_vals = [f"{c.metric}: {c.old_value}" for c in evaluation.changes]
+        new_vals = [f"{c.metric}: {c.new_value}" for c in evaluation.changes]
+        reasons = [c.significance_reason for c in evaluation.changes]
+
+        previous_value_str = ", ".join(prev_vals) if prev_vals else f"Suitability Score {old_score} ({old_verdict})"
+        new_value_str = ", ".join(new_vals) if new_vals else f"Suitability Score {new_score} ({new_verdict})"
+        reason_str = "; ".join(reasons) if reasons else evaluation.summary
+
         req = CreateNotificationRequest(
             category=category,
             title=f"Plan Alert: Weather Shift for '{plan.subject}'",
@@ -330,9 +347,20 @@ class SmartMonitoringScheduler:
             severity=severity,
             dedupe_key=dedupe_key,
             plan_id=plan.id,
+            link=f"/#plan-{plan.id}",
+            previous_value=previous_value_str,
+            new_value=new_value_str,
+            reason=reason_str,
+            is_simulated=False,
+            critic_review_approved=True,
         )
 
-        _, was_created = db.add_notification(req)
+        item, was_created = db.add_notification(req)
+        if was_created:
+            try:
+                push_service.send_push_notification(item)
+            except Exception as e:
+                logger.error(f"Failed to broadcast push notification: {e}")
         return was_created
 
 

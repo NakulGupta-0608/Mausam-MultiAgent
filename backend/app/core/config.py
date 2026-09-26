@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     THRESHOLD_UV_DELTA: float = 2.0
     THRESHOLD_SCORE_DROP_PTS: int = 12
 
+    # Web Push Notifications (VAPID)
+    VAPID_PUBLIC_KEY: str = "BFWkMKu0v2u6tVbNzW53rQRyvbzILeVXw4qWvQBABjArnoDH0C0N5ACE6TrwqP7FtppmJAOH6RifsB2oiGbErac"
+    VAPID_PRIVATE_KEY: str = "GZ8lIMOWuwaJ1IuZT7GiEaMv3h5Bz6tuwSImCdC61A4"
+    VAPID_CLAIM_EMAIL: str = "mailto:support@mausam.ai"
+
     # LLM Provider
     LLM_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
