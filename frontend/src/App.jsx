@@ -12,6 +12,7 @@ import SavedPlans from './components/SavedPlans';
 import NotificationCenter from './components/NotificationCenter';
 import AgentExecutionTrace from './components/AgentExecutionTrace';
 import { registerServiceWorker } from './utils/pushNotifications';
+import { getCurrentCoordinates } from './utils/geolocation';
 import { AlertCircle, Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -19,6 +20,12 @@ export default function App() {
   const [query, setQuery] = useState('Can I plan an alpine day trek with clear visibility and moderate winds?');
   const [location, setLocation] = useState('Shimla');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  // Live Location State
+  const [liveCoords, setLiveCoords] = useState(null);
+  const [isLiveLocation, setIsLiveLocation] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationWarning, setLocationWarning] = useState(null);
 
   // Loading flags
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -52,15 +59,14 @@ export default function App() {
   const [isPollingAll, setIsPollingAll] = useState(false);
   const [monitoringStatus, setMonitoringStatus] = useState({ poll_interval_seconds: 60 });
 
-  // Initial load
+  // Initial load: Request location permission automatically without requiring manual input
   useEffect(() => {
     registerServiceWorker();
     checkHealth();
     fetchPlans();
     fetchNotifications();
     fetchMonitoringStatus();
-    // Load initial real weather for default location
-    handleSearchWeather('Shimla', date);
+    handleDetectLiveLocation(true);
   }, []);
 
   const checkHealth = async () => {
@@ -99,11 +105,11 @@ export default function App() {
     }
   };
 
-  // Direct Live Weather Lookup
-  const handleSearchWeather = async (targetLoc = location, targetDate = date) => {
-    const loc = targetLoc.trim();
-    if (!loc) {
-      setErrorMsg('Please specify a target location');
+  // Direct Live Weather Lookup (supports both coordinates and city name)
+  const handleSearchWeather = async (targetLoc = location, targetDate = date, coords = liveCoords) => {
+    const loc = targetLoc ? targetLoc.trim() : '';
+    if (!loc && !coords) {
+      setErrorMsg('Please specify a target location or enable GPS');
       return;
     }
 
@@ -113,7 +119,10 @@ export default function App() {
     setInsufficientDataResult(null);
 
     try {
-      const data = await apiClient.getWeather(loc, targetDate);
+      const target = coords
+        ? { latitude: coords.latitude, longitude: coords.longitude, location: loc }
+        : loc;
+      const data = await apiClient.getWeather(target, targetDate);
       setDirectWeather(data);
       setBackendOnline(true);
       setWeatherError(null);
@@ -135,13 +144,56 @@ export default function App() {
         setWeatherError({
           errorCode: 'WEATHER_API_ERROR',
           message: err.message || 'Unable to connect to meteorological service.',
-          locationSearched: loc,
+          locationSearched: loc || 'GPS Coordinates',
           retriesAttempted: 0,
           timestamp: new Date().toISOString(),
         });
       }
     } finally {
       setIsSearchingWeather(false);
+    }
+  };
+
+  // Automatic Live Location Detection via browser Geolocation API & Reverse Geocoding
+  const handleDetectLiveLocation = async (isInitial = false) => {
+    setIsDetectingLocation(true);
+    setLocationWarning(null);
+
+    try {
+      // 1. Detect browser GPS coordinates
+      const coords = await getCurrentCoordinates();
+      setLiveCoords(coords);
+      setIsLiveLocation(true);
+
+      // 2. Reverse geocode coordinates to human-readable city/region name
+      let resolvedName = '';
+      try {
+        const geo = await apiClient.reverseGeocode(coords.latitude, coords.longitude);
+        if (geo && geo.name) {
+          resolvedName = geo.name;
+          setLocation(resolvedName);
+        }
+      } catch (revErr) {
+        console.warn('Reverse geocoding warning, proceeding with coordinates:', revErr);
+        resolvedName = `Live Location (${coords.latitude.toFixed(2)}°, ${coords.longitude.toFixed(2)}°)`;
+        setLocation(resolvedName);
+      }
+
+      // 3. Fetch real-time weather from Open-Meteo with coordinates
+      await handleSearchWeather(resolvedName, date, coords);
+    } catch (err) {
+      console.warn('Live location detection error:', err);
+      setLiveCoords(null);
+      setIsLiveLocation(false);
+      const msg = err.message || 'Location access unavailable. Defaulting to manual city search.';
+      setLocationWarning(msg);
+
+      if (isInitial) {
+        // Fallback gracefully so dashboard displays immediately
+        await handleSearchWeather('Shimla', date, null);
+      }
+    } finally {
+      setIsDetectingLocation(false);
     }
   };
 
@@ -180,6 +232,8 @@ export default function App() {
           query,
           location: loc,
           target_date: date,
+          latitude: liveCoords?.latitude,
+          longitude: liveCoords?.longitude,
         },
         (event) => {
           if (event.type === 'start') {
@@ -504,9 +558,18 @@ export default function App() {
             date={date}
             setDate={setDate}
             onAnalyze={handleAnalyze}
-            onSearchOnly={() => handleSearchWeather(location, date)}
+            onSearchOnly={() => handleSearchWeather(location, date, liveCoords)}
             isAnalyzing={isAnalyzing}
             isSearchingWeather={isSearchingWeather}
+            isDetectingLocation={isDetectingLocation}
+            onRefreshLocation={() => handleDetectLiveLocation(false)}
+            liveCoords={liveCoords}
+            onClearLiveCoords={() => {
+              setLiveCoords(null);
+              setIsLiveLocation(false);
+            }}
+            locationWarning={locationWarning}
+            onDismissWarning={() => setLocationWarning(null)}
           />
         </div>
 
@@ -523,7 +586,7 @@ export default function App() {
         {weatherError && (
           <WeatherDegradedState
             error={weatherError}
-            onRetry={() => handleSearchWeather(location, date)}
+            onRetry={() => handleSearchWeather(location, date, liveCoords)}
             onSelectSuggestion={handleSelectSuggestion}
           />
         )}
@@ -539,7 +602,7 @@ export default function App() {
 
         {/* Weather Overview (Displayed when weather data is valid and no error) */}
         {!weatherError && directWeather && (
-          <WeatherOverview weather={directWeather} />
+          <WeatherOverview weather={directWeather} isLiveLocation={isLiveLocation} />
         )}
 
         {/* Analysis Results Display (Recommendation & Execution Trace) */}

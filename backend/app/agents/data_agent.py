@@ -22,7 +22,16 @@ class DataAgent(BaseAgent):
 
         try:
             # Step 1: Resolve Coordinates
-            state.geo = await geo_service.geocode(state.location_name)
+            if state.latitude is not None and state.longitude is not None:
+                state.geo = await geo_service.reverse_geocode(
+                    latitude=state.latitude,
+                    longitude=state.longitude,
+                    fallback_name=state.location_name
+                )
+                coord_info = f"live GPS coordinates ({state.latitude:.4f}°, {state.longitude:.4f}°)"
+            else:
+                state.geo = await geo_service.geocode(state.location_name)
+                coord_info = f"'{state.location_name}' ({state.geo.latitude}°, {state.geo.longitude}°)"
 
             # Step 2: Fetch Live Forecast
             weather = await weather_tool.get_forecast(state.geo, state.target_date)
@@ -31,7 +40,7 @@ class DataAgent(BaseAgent):
             duration = (time.perf_counter() - start_time) * 1000
 
             reasoning = (
-                f"Resolved '{state.location_name}' to coordinates ({state.geo.latitude}°, {state.geo.longitude}°). "
+                f"Resolved {coord_info} to location '{state.geo.name}'. "
                 f"Fetched live Open-Meteo telemetry: {weather.condition_text} at {weather.temp_c}°C, "
                 f"relative humidity {weather.humidity}%, wind speed {weather.wind_kph} km/h ({weather.wind_direction}), "
                 f"precipitation probability {weather.precipitation_prob}%. No synthetic fallback used."

@@ -7,6 +7,8 @@ class AnalysisRequest(BaseModel):
     query: str = Field(..., description="User query or planned activity (e.g., 'Can I go hiking?', 'Outdoor wedding planning')")
     location: str = Field(..., description="Target city or location name (e.g., 'Shimla', 'San Francisco')")
     target_date: Optional[str] = Field(default=None, description="Target date in YYYY-MM-DD format. Defaults to today/tomorrow.")
+    latitude: Optional[float] = Field(default=None, description="Optional detected GPS latitude")
+    longitude: Optional[float] = Field(default=None, description="Optional detected GPS longitude")
 
 
 class StructuredPlan(BaseModel):

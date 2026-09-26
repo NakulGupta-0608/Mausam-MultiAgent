@@ -23,6 +23,8 @@ class GeoService:
     """
 
     GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
+    REVERSE_GEO_URL = "https://api.bigdatacloud.net/data/reverse-geocode-client"
+    NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
     MAX_RETRIES = 2
     TIMEOUT_SECONDS = 4.0
 
@@ -127,6 +129,108 @@ class GeoService:
                 location=clean_name,
                 retries_attempted=retries_attempted,
             )
+
+    async def reverse_geocode(
+        self,
+        latitude: float,
+        longitude: float,
+        fallback_name: Optional[str] = None
+    ) -> GeoLocation:
+        """Converts latitude and longitude into a structured human-readable location name.
+        
+        Uses primary high-speed reverse geocoding with secondary fallback and coordinate fallback.
+        """
+        if not (-90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0):
+            raise LocationNotFoundException(
+                location=f"({latitude}, {longitude})",
+                detail=f"Coordinates ({latitude}, {longitude}) are out of valid geographical bounds [-90, 90] and [-180, 180]."
+            )
+
+        # 1. Primary Reverse Geocoding: BigDataCloud
+        params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "localityLanguage": "en",
+        }
+
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.TIMEOUT_SECONDS) as client:
+                    resp = await client.get(self.REVERSE_GEO_URL, params=params)
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    city = data.get("city") or data.get("locality") or data.get("principalSubdivision")
+                    country = data.get("countryName") or data.get("countryCode") or ""
+                    region = data.get("principalSubdivision") or ""
+
+                    parts = [p for p in [city, region] if p]
+                    name = ", ".join(parts) if parts else (fallback_name or f"Live Location ({latitude:.3f}°, {longitude:.3f}°)")
+
+                    logger.info(f"Reverse-geocoded ({latitude}, {longitude}) to '{name}', {country}")
+                    return GeoLocation(
+                        name=name,
+                        country=country,
+                        region=region,
+                        latitude=latitude,
+                        longitude=longitude,
+                        timezone="auto",
+                    )
+            except Exception as e:
+                logger.warning(f"BigDataCloud reverse geocode attempt {attempt + 1} failed: {e}")
+                if attempt < self.MAX_RETRIES:
+                    await asyncio.sleep(0.5 * (2 ** attempt))
+
+        # 2. Secondary Reverse Geocoding: OpenStreetMap Nominatim
+        try:
+            headers = {"User-Agent": "MausamAI/1.0 (weather-intelligence-agent)"}
+            nom_params = {
+                "lat": latitude,
+                "lon": longitude,
+                "format": "json",
+            }
+            async with httpx.AsyncClient(timeout=self.TIMEOUT_SECONDS) as client:
+                nom_resp = await client.get(self.NOMINATIM_REVERSE_URL, params=nom_params, headers=headers)
+
+            if nom_resp.status_code == 200:
+                nom_data = nom_resp.json()
+                address = nom_data.get("address", {})
+                city = (
+                    address.get("city")
+                    or address.get("town")
+                    or address.get("village")
+                    or address.get("suburb")
+                    or address.get("county")
+                )
+                region = address.get("state") or address.get("region") or ""
+                country = address.get("country") or ""
+
+                parts = [p for p in [city, region] if p]
+                name = ", ".join(parts) if parts else (fallback_name or f"Live Location ({latitude:.3f}°, {longitude:.3f}°)")
+
+                logger.info(f"Nominatim reverse-geocoded ({latitude}, {longitude}) to '{name}', {country}")
+                return GeoLocation(
+                    name=name,
+                    country=country,
+                    region=region,
+                    latitude=latitude,
+                    longitude=longitude,
+                    timezone="auto",
+                )
+        except Exception as e:
+            logger.warning(f"Nominatim reverse geocode fallback failed: {e}")
+
+        # 3. Graceful fallback with coordinates and provided fallback_name
+        resolved_name = fallback_name or f"Live Location ({latitude:.3f}°, {longitude:.3f}°)"
+        logger.info(f"Using coordinate representation '{resolved_name}' for ({latitude}, {longitude})")
+        return GeoLocation(
+            name=resolved_name,
+            country="",
+            region="",
+            latitude=latitude,
+            longitude=longitude,
+            timezone="auto",
+        )
 
 
 geo_service = GeoService()

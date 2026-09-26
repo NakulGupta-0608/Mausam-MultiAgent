@@ -40,17 +40,23 @@ export const apiClient = {
     return res.json();
   },
 
-  async analyzeWeather({ query, location, target_date }) {
+  async analyzeWeather({ query, location, target_date, latitude, longitude }) {
+    const payload = {
+      query: query.trim(),
+      location: location.trim(),
+      target_date: target_date || undefined,
+    };
+    if (latitude != null && longitude != null) {
+      payload.latitude = latitude;
+      payload.longitude = longitude;
+    }
+
     const res = await fetch(`${BASE_URL}/analysis`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        query: query.trim(),
-        location: location.trim(),
-        target_date: target_date || undefined,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -60,17 +66,23 @@ export const apiClient = {
     return res.json();
   },
 
-  async analyzeWeatherStream({ query, location, target_date }, onEvent) {
+  async analyzeWeatherStream({ query, location, target_date, latitude, longitude }, onEvent) {
+    const payload = {
+      query: query.trim(),
+      location: location.trim(),
+      target_date: target_date || undefined,
+    };
+    if (latitude != null && longitude != null) {
+      payload.latitude = latitude;
+      payload.longitude = longitude;
+    }
+
     const res = await fetch(`${BASE_URL}/analysis/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        query: query.trim(),
-        location: location.trim(),
-        target_date: target_date || undefined,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -127,9 +139,29 @@ export const apiClient = {
     }
   },
 
-  async getWeather(location, date) {
-    const cleanLocation = location.trim();
-    const params = new URLSearchParams({ location: cleanLocation });
+  async reverseGeocode(latitude, longitude) {
+    const params = new URLSearchParams({ latitude, longitude });
+    const res = await fetch(`${BASE_URL}/weather/reverse-geocode?${params.toString()}`);
+    if (!res.ok) {
+      const errorJson = await res.json().catch(() => null);
+      throw new WeatherApiError(res.status, errorJson, `Reverse geocode failed (${res.status})`);
+    }
+    return res.json();
+  },
+
+  async getWeather(target, date) {
+    const params = new URLSearchParams();
+    if (typeof target === 'object' && target !== null) {
+      if (target.latitude != null && target.longitude != null) {
+        params.append('latitude', target.latitude);
+        params.append('longitude', target.longitude);
+      }
+      if (target.location) {
+        params.append('location', target.location.trim());
+      }
+    } else if (typeof target === 'string') {
+      params.append('location', target.trim());
+    }
     if (date) params.append('date', date);
 
     const res = await fetch(`${BASE_URL}/weather?${params.toString()}`);

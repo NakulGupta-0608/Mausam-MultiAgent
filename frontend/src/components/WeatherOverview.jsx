@@ -13,7 +13,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
-export default function WeatherOverview({ weather }) {
+export default function WeatherOverview({ weather, isLiveLocation = false }) {
   if (!weather) return null;
 
   const loc = weather.location;
@@ -30,6 +30,12 @@ export default function WeatherOverview({ weather }) {
             {loc?.country && (
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
                 {loc.region ? `${loc.region}, ` : ''}{loc.country}
+              </span>
+            )}
+            {isLiveLocation && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-cyan-950/60 text-cyan-300 border border-cyan-800/50">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping mr-0.5" />
+                Live GPS Location
               </span>
             )}
             <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
