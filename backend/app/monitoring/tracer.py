@@ -7,7 +7,10 @@ from backend.app.monitoring.logger import logger
 
 
 class AgentExecutionTracer:
-    """Collects and records execution traces across multi-agent workflows."""
+    """Collects and records execution traces across multi-agent workflows.
+    
+    Logs every agent's action, input, output, duration, and explicit reasoning.
+    """
 
     def __init__(self, trace_id: Optional[str] = None):
         self.trace_id = trace_id or str(uuid.uuid4())
@@ -21,6 +24,8 @@ class AgentExecutionTracer:
         status: str,
         duration_ms: float,
         summary: str,
+        action: str = "EXECUTE",
+        reasoning: str = "",
         inputs: Optional[Dict[str, Any]] = None,
         outputs: Optional[Dict[str, Any]] = None,
     ) -> AgentTraceStep:
@@ -28,6 +33,8 @@ class AgentExecutionTracer:
             id=str(uuid.uuid4())[:8],
             agent_name=agent_name,
             stage=stage,
+            action=action,
+            reasoning=reasoning,
             status=status,
             duration_ms=round(duration_ms, 2),
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -36,7 +43,7 @@ class AgentExecutionTracer:
             outputs=outputs or {},
         )
         self.steps.append(step)
-        logger.info(f"[{agent_name} -> {stage}] {status} in {step.duration_ms}ms: {summary}")
+        logger.info(f"[{agent_name} -> {stage}] {action} ({status}) in {step.duration_ms}ms: {summary}")
         return step
 
     def get_total_duration_ms(self) -> float:

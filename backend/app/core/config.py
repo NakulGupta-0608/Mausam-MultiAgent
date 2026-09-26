@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "MausamAI - Weather Intelligence Multi-Agent Engine"
-    VERSION: str = "0.1.0"
+    VERSION: str = "0.2.0"
     API_V1_STR: str = "/api"
 
     BACKEND_HOST: str = "127.0.0.1"
@@ -32,7 +32,13 @@ class Settings(BaseSettings):
     WEATHER_PROVIDER: str = "open-meteo"
     WEATHER_API_KEY: str = ""
 
-    # Future AI expansion
+    # Multi-Agent Orchestration & Budget Controls
+    MAX_CRITIC_REVIEWS: int = 2
+    WORKFLOW_MAX_STEPS: int = 10
+    WORKFLOW_TIME_BUDGET_SEC: float = 15.0
+    WORKFLOW_COST_BUDGET_USD: float = 0.05
+
+    # LLM Provider
     LLM_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""

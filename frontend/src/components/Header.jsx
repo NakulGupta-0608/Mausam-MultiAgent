@@ -57,7 +57,7 @@ export default function Header({
           {/* Active Agents Badge */}
           <div className="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-900/50 border border-slate-800 text-xs text-slate-300">
             <Activity className="w-3.5 h-3.5 text-cyan-400" />
-            <span>3 Agents Mesh</span>
+            <span>5 Agents Mesh</span>
           </div>
 
           {/* Notifications Toggle */}

@@ -332,6 +332,7 @@ export default function App() {
             <AgentExecutionTrace
               trace={analysisResult.trace}
               totalExecutionMs={analysisResult.total_execution_ms}
+              stoppingCondition={analysisResult.stopping_condition}
             />
           </div>
         )}

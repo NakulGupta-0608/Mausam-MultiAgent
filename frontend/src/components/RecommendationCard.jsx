@@ -7,9 +7,12 @@ import {
   Package,
   Clock,
   Shield,
-  ThumbsUp,
   Sparkles,
-  ArrowRight,
+  ShieldCheck,
+  Scale,
+  FileText,
+  AlertOctagon,
+  Info,
 } from 'lucide-react';
 
 const VERDICT_STYLES = {
@@ -55,6 +58,7 @@ export default function RecommendationCard({
 
   const style = VERDICT_STYLES[recommendation.verdict_badge] || VERDICT_STYLES.Caution;
   const [checkedGear, setCheckedGear] = useState({});
+  const critic = recommendation.critic_review;
 
   const toggleGear = (item) => {
     setCheckedGear((prev) => ({ ...prev, [item]: !prev[item] }));
@@ -76,17 +80,27 @@ export default function RecommendationCard({
   };
 
   return (
-    <div className={`w-full rounded-2xl p-6 border shadow-2xl transition-all ${style.bg} ${style.border}`}>
+    <div className={`w-full rounded-2xl p-6 border shadow-2xl transition-all space-y-6 ${style.bg} ${style.border}`}>
       {/* Top Banner: Score & Verdict */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-6">
         <div>
-          <div className="flex items-center space-x-2.5 mb-2">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
             <span className={`text-xs uppercase font-bold tracking-wider px-3 py-1 rounded-full border ${style.badge}`}>
               {recommendation.verdict_badge}
             </span>
             <span className="text-xs text-slate-400 flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-cyan-400" /> Synthesized Agent Decision
+              <Sparkles className="w-3 h-3 text-cyan-400" /> Evidence-Based Decision
             </span>
+            {critic && (
+              <span className={`text-[11px] font-mono px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
+                critic.verdict === 'APPROVE'
+                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/60'
+                  : 'bg-amber-950/80 text-amber-300 border-amber-800/60'
+              }`}>
+                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                Critic: {critic.verdict} ({critic.critique_score}%)
+              </span>
+            )}
           </div>
           <h3 className="text-xl font-bold text-white tracking-tight">
             {recommendation.headline}
@@ -97,7 +111,7 @@ export default function RecommendationCard({
         </div>
 
         {/* Outdoor Suitability Score Card */}
-        <div className="flex items-center sm:flex-col items-end sm:items-center justify-between p-4 rounded-xl bg-slate-900/80 border border-slate-800 min-w-[140px]">
+        <div className="flex items-center sm:flex-col items-end sm:items-center justify-between p-4 rounded-xl bg-slate-900/80 border border-slate-800 min-w-[140px] shrink-0">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Suitability Score
           </span>
@@ -113,12 +127,94 @@ export default function RecommendationCard({
         </div>
       </div>
 
-      {/* Main Content Grid: Activity & Packing */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-6">
-        {/* Activity Recommendation */}
+      {/* Critic Review Audit Box */}
+      {critic && (
+        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 flex items-start space-x-3 text-xs leading-relaxed">
+          <ShieldCheck className={`w-4 h-4 mt-0.5 shrink-0 ${critic.verdict === 'APPROVE' ? 'text-emerald-400' : 'text-amber-400'}`} />
+          <div className="space-y-1">
+            <div className="flex items-center space-x-2">
+              <span className="font-semibold text-slate-200">
+                Critic Agent Verification (Cycle {critic.iteration})
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Consistency: {critic.data_consistency_passed ? 'PASS' : 'FAIL'} • Constraints: {critic.constraints_satisfied ? 'PASS' : 'FAIL'}
+              </span>
+            </div>
+            <p className="text-slate-400">{critic.critique_notes}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Comparative Options Analysis */}
+      {recommendation.options_comparison && recommendation.options_comparison.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <Scale className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Comparative Operational Options</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {recommendation.options_comparison.map((opt, i) => (
+              <div
+                key={i}
+                className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col justify-between space-y-3"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-semibold text-sm text-slate-100">{opt.option_name}</span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/40 text-cyan-300">
+                      {opt.suitability_score}/100
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-medium text-cyan-400 block mb-2">{opt.verdict}</span>
+
+                  <div className="space-y-1.5 text-xs">
+                    {opt.pros && opt.pros.map((p, pIdx) => (
+                      <div key={pIdx} className="text-emerald-400 flex items-start gap-1.5">
+                        <Check className="w-3 h-3 mt-0.5 shrink-0" />
+                        <span className="text-slate-300">{p}</span>
+                      </div>
+                    ))}
+                    {opt.cons && opt.cons.map((c, cIdx) => (
+                      <div key={cIdx} className="text-rose-400 flex items-start gap-1.5">
+                        <span className="font-bold leading-none shrink-0">•</span>
+                        <span className="text-slate-400">{c}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empirical Evidence Citations */}
+      {recommendation.evidence_citations && recommendation.evidence_citations.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <FileText className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Empirical Telemetry Evidence (Grounded from DataAgent)</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            {recommendation.evidence_citations.map((cite, i) => (
+              <div key={i} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
+                <span className="text-[11px] text-slate-400 font-medium block">{cite.metric}</span>
+                <span className="font-bold text-white font-mono block">{cite.observed_value}</span>
+                <span className="text-[10px] text-slate-400 block leading-tight">{cite.implication}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main Grid: Activity Details, Packing, and Stated Limitations */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
+        {/* Activity Details & Risk Alerts */}
         <div className="lg:col-span-7 space-y-4">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-cyan-400" /> Activity Feasibility
+            <Clock className="w-3.5 h-3.5 text-cyan-400" /> Activity Execution Strategy
           </h4>
 
           {recommendation.activities.map((act, idx) => (
@@ -161,9 +257,9 @@ export default function RecommendationCard({
 
           {/* Risk Alerts */}
           {recommendation.risk_alerts && recommendation.risk_alerts.length > 0 && (
-            <div className="space-y-2 pt-2">
+            <div className="space-y-2 pt-1">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Shield className="w-3.5 h-3.5 text-amber-400" /> Risk Assessment & Hazards
+                <Shield className="w-3.5 h-3.5 text-amber-400" /> Active Hazards & Mitigations
               </h4>
               <div className="space-y-2">
                 {recommendation.risk_alerts.map((alert, idx) => (
@@ -194,37 +290,57 @@ export default function RecommendationCard({
           )}
         </div>
 
-        {/* Gear Checklist & Actions */}
+        {/* Gear Checklist & Stated Limitations */}
         <div className="lg:col-span-5 space-y-4 flex flex-col justify-between">
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Package className="w-3.5 h-3.5 text-cyan-400" /> Dynamic Packing Checklist
-            </h4>
-            <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
-              {recommendation.packing_checklist.map((item, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => toggleGear(item)}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-lg border text-xs text-left transition-all ${
-                    checkedGear[item]
-                      ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200 line-through'
-                      : 'bg-slate-850 hover:bg-slate-800/80 border-slate-700/60 text-slate-300'
-                  }`}
-                >
-                  <span>{item}</span>
-                  <div
-                    className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+          <div className="space-y-4">
+            {/* Packing Checklist */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Package className="w-3.5 h-3.5 text-cyan-400" /> Dynamic Gear Checklist
+              </h4>
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                {recommendation.packing_checklist.map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => toggleGear(item)}
+                    className={`w-full flex items-center justify-between p-2 rounded-lg border text-xs text-left transition-all ${
                       checkedGear[item]
-                        ? 'bg-emerald-500 border-emerald-500 text-slate-950'
-                        : 'border-slate-600'
+                        ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200 line-through'
+                        : 'bg-slate-850 hover:bg-slate-800/80 border-slate-700/60 text-slate-300'
                     }`}
                   >
-                    {checkedGear[item] && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                </button>
-              ))}
+                    <span>{item}</span>
+                    <div
+                      className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                        checkedGear[item]
+                          ? 'bg-emerald-500 border-emerald-500 text-slate-950'
+                          : 'border-slate-600'
+                      }`}
+                    >
+                      {checkedGear[item] && <Check className="w-3 h-3 stroke-[3]" />}
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {/* Stated Limitations */}
+            {recommendation.stated_limitations && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-cyan-400" /> Stated Forecast Limitations
+                </h4>
+                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
+                  {recommendation.stated_limitations.map((lim, lIdx) => (
+                    <div key={lIdx} className="flex items-start gap-1.5">
+                      <span className="text-cyan-400 font-bold shrink-0">•</span>
+                      <span>{lim}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Action to Save Plan */}
