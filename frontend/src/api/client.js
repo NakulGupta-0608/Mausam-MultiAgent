@@ -164,6 +164,56 @@ export const apiClient = {
     return res.json();
   },
 
+  async checkPlan(planId, simulatedWeather = null, force = false) {
+    const res = await fetch(`${BASE_URL}/plans/${planId}/check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        simulated_weather: simulatedWeather || undefined,
+        force: force,
+      }),
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => null);
+      throw new Error(errJson?.detail || `Plan check failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async updatePlanStatus(planId, status) {
+    const res = await fetch(`${BASE_URL}/plans/${planId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error(`Update status failed: ${res.status}`);
+    return res.json();
+  },
+
+  async getMonitoringStatus() {
+    const res = await fetch(`${BASE_URL}/monitoring/status`);
+    if (!res.ok) throw new Error(`Get monitoring status failed: ${res.status}`);
+    return res.json();
+  },
+
+  async triggerMonitoringCycle() {
+    const res = await fetch(`${BASE_URL}/monitoring/trigger`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(`Trigger monitoring failed: ${res.status}`);
+    return res.json();
+  },
+
+  async updateMonitoringInterval(intervalSeconds) {
+    const res = await fetch(`${BASE_URL}/monitoring/interval`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interval_seconds: intervalSeconds }),
+    });
+    if (!res.ok) throw new Error(`Update interval failed: ${res.status}`);
+    return res.json();
+  },
+
   async getNotifications() {
     const res = await fetch(`${BASE_URL}/notifications`);
     if (!res.ok) throw new Error(`Fetch notifications failed: ${res.status}`);

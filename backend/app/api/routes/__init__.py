@@ -3,6 +3,7 @@ from .weather import router as weather_router
 from .analysis import router as analysis_router
 from .plans import router as plans_router
 from .notifications import router as notifications_router
+from .monitoring import router as monitoring_router
 
 __all__ = [
     "health_router",
@@ -10,4 +11,5 @@ __all__ = [
     "analysis_router",
     "plans_router",
     "notifications_router",
+    "monitoring_router",
 ]

@@ -59,3 +59,12 @@ lerna-debug.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Databases
+*.db
+*.db-wal
+*.db-shm
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
+

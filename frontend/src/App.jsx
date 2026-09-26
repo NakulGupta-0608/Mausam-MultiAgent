@@ -42,17 +42,21 @@ export default function App() {
   const [weatherError, setWeatherError] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Storage
+  // Smart Monitoring Storage & Scheduler State
   const [savedPlans, setSavedPlans] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSavedCurrent, setIsSavedCurrent] = useState(false);
+  const [isCheckingPlan, setIsCheckingPlan] = useState({});
+  const [isPollingAll, setIsPollingAll] = useState(false);
+  const [monitoringStatus, setMonitoringStatus] = useState({ poll_interval_seconds: 60 });
 
   // Initial load
   useEffect(() => {
     checkHealth();
     fetchPlans();
     fetchNotifications();
+    fetchMonitoringStatus();
     // Load initial real weather for default location
     handleSearchWeather('Shimla', date);
   }, []);
@@ -81,6 +85,15 @@ export default function App() {
       setNotifications(data);
     } catch (e) {
       console.warn('Could not load notifications:', e);
+    }
+  };
+
+  const fetchMonitoringStatus = async () => {
+    try {
+      const data = await apiClient.getMonitoringStatus();
+      setMonitoringStatus(data);
+    } catch (e) {
+      console.warn('Could not load monitoring status:', e);
     }
   };
 
@@ -276,6 +289,7 @@ export default function App() {
     handleSearchWeather(suggestedCity, date);
   };
 
+  // Save Plan with Smart Monitoring
   const handleSavePlan = async (planData) => {
     try {
       const saved = await apiClient.savePlan(planData);
@@ -299,9 +313,113 @@ export default function App() {
   const handleLoadPlan = (plan) => {
     setLocation(plan.location);
     setDate(plan.target_date);
-    setQuery(plan.query);
+    setQuery(plan.query || `Outdoor plan for ${plan.action} in ${plan.location}`);
     handleSearchWeather(plan.location, plan.target_date);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Smart Monitoring Handlers
+  const handleCheckPlan = async (planId) => {
+    setIsCheckingPlan((prev) => ({ ...prev, [planId]: true }));
+    try {
+      const res = await apiClient.checkPlan(planId);
+      if (res.plan) {
+        setSavedPlans((prev) => prev.map((p) => (p.id === planId ? res.plan : p)));
+      }
+      if (res.notification_emitted) {
+        await fetchNotifications();
+      }
+    } catch (err) {
+      console.error('Plan check error:', err);
+      setErrorMsg('Check failed: ' + err.message);
+    } finally {
+      setIsCheckingPlan((prev) => ({ ...prev, [planId]: false }));
+    }
+  };
+
+  const handleSimulateChange = async (planId) => {
+    const plan = savedPlans.find((p) => p.id === planId);
+    if (!plan) return;
+
+    setIsCheckingPlan((prev) => ({ ...prev, [planId]: true }));
+
+    // Create a simulated significant weather change (approaching convective squall / thunderstorm)
+    const simulatedWeather = {
+      location: {
+        name: plan.location,
+        latitude: 31.1,
+        longitude: 77.1,
+        country: 'India',
+        region: 'Himachal Pradesh',
+      },
+      observed_date: plan.target_date,
+      temp_c: 11.5,
+      feels_like_c: 7.0,
+      humidity: 95,
+      wind_kph: 38.0,
+      wind_direction: 'NW',
+      precipitation_prob: 85,
+      precipitation_mm: 16.0,
+      uv_index: 2.0,
+      condition_text: 'Thunderstorm with Heavy Rain',
+      source: 'simulated-change-test',
+      forecast_days: [
+        {
+          date: plan.target_date,
+          max_temp_c: 13.0,
+          min_temp_c: 6.0,
+          avg_temp_c: 9.5,
+          condition: 'Thunderstorm',
+          rain_probability: 85,
+          uv_index: 2.0,
+          wind_max_kph: 38.0,
+        }
+      ],
+    };
+
+    try {
+      const res = await apiClient.checkPlan(planId, simulatedWeather, true);
+      if (res.plan) {
+        setSavedPlans((prev) => prev.map((p) => (p.id === planId ? res.plan : p)));
+      }
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Simulation check failed:', err);
+      setErrorMsg('Simulation failed: ' + err.message);
+    } finally {
+      setIsCheckingPlan((prev) => ({ ...prev, [planId]: false }));
+    }
+  };
+
+  const handleTogglePlanStatus = async (planId, newStatus) => {
+    try {
+      const updated = await apiClient.updatePlanStatus(planId, newStatus);
+      setSavedPlans((prev) => prev.map((p) => (p.id === planId ? updated : p)));
+    } catch (err) {
+      console.error('Update status failed:', err);
+    }
+  };
+
+  const handleTriggerMonitoring = async () => {
+    setIsPollingAll(true);
+    try {
+      await apiClient.triggerMonitoringCycle();
+      await fetchPlans();
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Trigger monitoring failed:', err);
+    } finally {
+      setIsPollingAll(false);
+    }
+  };
+
+  const handleUpdateInterval = async (intervalSec) => {
+    try {
+      await apiClient.updateMonitoringInterval(intervalSec);
+      setMonitoringStatus((prev) => ({ ...prev, poll_interval_seconds: intervalSec }));
+    } catch (err) {
+      console.error('Update interval failed:', err);
+    }
   };
 
   const handleMarkNotifRead = async (notifId) => {
@@ -343,7 +461,7 @@ export default function App() {
         <div className="space-y-2">
           <div className="flex items-center space-x-2 text-cyan-400 text-xs font-semibold tracking-wider uppercase">
             <Sparkles className="w-4 h-4" />
-            <span>Autonomous Weather Decision Engine</span>
+            <span>Autonomous Weather Decision Engine & Smart Monitor</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
             Weather Intelligence Dashboard
@@ -430,6 +548,7 @@ export default function App() {
               query={analysisResult.query}
               location={analysisResult.location}
               targetDate={analysisResult.target_date}
+              weather={directWeather}
               onSavePlan={handleSavePlan}
               isSaved={isSavedCurrent}
             />
@@ -442,11 +561,19 @@ export default function App() {
           </div>
         )}
 
-        {/* Saved Plans Section */}
+        {/* Smart Monitoring & Active Saved Plans Dashboard */}
         <SavedPlans
           plans={savedPlans}
           onDeletePlan={handleDeletePlan}
           onLoadPlan={handleLoadPlan}
+          onCheckPlan={handleCheckPlan}
+          onSimulateChange={handleSimulateChange}
+          onToggleStatus={handleTogglePlanStatus}
+          onTriggerMonitoring={handleTriggerMonitoring}
+          onUpdateInterval={handleUpdateInterval}
+          monitoringStatus={monitoringStatus}
+          isChecking={isCheckingPlan}
+          isPollingAll={isPollingAll}
         />
       </main>
 

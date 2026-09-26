@@ -5,6 +5,7 @@ from backend.app.api.routes import (
     analysis_router,
     plans_router,
     notifications_router,
+    monitoring_router,
 )
 
 api_router = APIRouter()
@@ -13,3 +14,4 @@ api_router.include_router(weather_router)
 api_router.include_router(analysis_router)
 api_router.include_router(plans_router)
 api_router.include_router(notifications_router)
+api_router.include_router(monitoring_router)

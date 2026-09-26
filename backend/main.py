@@ -8,12 +8,17 @@ from backend.app.core.config import settings
 from backend.app.api import api_router
 from backend.app.monitoring.logger import logger
 from backend.app.core.exceptions import WeatherServiceException
+from backend.app.monitoring.scheduler import monitoring_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION} [{settings.ENVIRONMENT}]")
+    if settings.MONITORING_ENABLED:
+        monitoring_scheduler.start()
     yield
+    if settings.MONITORING_ENABLED:
+        monitoring_scheduler.stop()
     logger.info(f"Shutting down {settings.PROJECT_NAME}")
 
 

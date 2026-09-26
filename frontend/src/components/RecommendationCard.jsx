@@ -51,6 +51,7 @@ export default function RecommendationCard({
   query,
   location,
   targetDate,
+  weather,
   onSavePlan,
   isSaved,
 }) {
@@ -66,16 +67,67 @@ export default function RecommendationCard({
 
   const handleSave = () => {
     if (isSaved) return;
+    const activityName = recommendation.activities[0]?.activity || 'Outdoor Activity';
+    const planSubject = `${activityName} @ ${location}`;
+
     onSavePlan({
-      title: `${recommendation.activities[0]?.activity || 'Weather Plan'} @ ${location}`,
+      subject: planSubject,
+      title: planSubject,
       location: location,
+      action: activityName,
       target_date: targetDate,
-      query: query,
+      query: query || '',
+      original_data_snapshot: weather ? {
+        temp_c: weather.temp_c,
+        feels_like_c: weather.feels_like_c,
+        humidity: weather.humidity,
+        wind_kph: weather.wind_kph,
+        wind_direction: weather.wind_direction || 'NW',
+        precipitation_prob: weather.precipitation_prob,
+        precipitation_mm: weather.precipitation_mm || 0.0,
+        uv_index: weather.uv_index || 0.0,
+        condition_text: weather.condition_text || 'Current Condition',
+        source: weather.source || 'open-meteo',
+        captured_at: new Date().toISOString(),
+      } : {
+        temp_c: 20.0,
+        feels_like_c: 20.0,
+        humidity: 50,
+        wind_kph: 15.0,
+        wind_direction: 'NW',
+        precipitation_prob: 20,
+        precipitation_mm: 0.0,
+        uv_index: 5.0,
+        condition_text: 'Fair',
+        source: 'open-meteo',
+        captured_at: new Date().toISOString(),
+      },
+      initial_recommendation: {
+        verdict_badge: recommendation.verdict_badge,
+        outdoor_score: recommendation.outdoor_score,
+        headline: recommendation.headline,
+        comfort_summary: recommendation.comfort_summary,
+        packing_checklist: recommendation.packing_checklist || [],
+        options_comparison: recommendation.options_comparison || [],
+        stated_limitations: recommendation.stated_limitations || [],
+        critic_verdict: critic?.verdict || 'APPROVE',
+        critique_score: critic?.critique_score || 90,
+      },
+      notification_preferences: {
+        notify_on_verdict_change: true,
+        notify_on_score_drop: true,
+        notify_on_severe_weather: true,
+        temp_threshold_c: 3.0,
+        rain_threshold_pct: 15,
+        wind_threshold_kph: 12.0,
+        uv_threshold: 2.0,
+        score_drop_threshold_pts: 12,
+      },
       verdict: recommendation.verdict_badge,
       outdoor_score: recommendation.outdoor_score,
       summary: recommendation.comfort_summary,
       packing_checklist: recommendation.packing_checklist,
-      tags: [recommendation.verdict_badge, recommendation.activities[0]?.activity || 'Outdoor'],
+      tags: [recommendation.verdict_badge, activityName],
     });
   };
 

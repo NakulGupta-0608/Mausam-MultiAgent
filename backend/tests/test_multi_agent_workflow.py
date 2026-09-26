@@ -325,8 +325,8 @@ async def test_streaming_invalid_location_yields_structured_error():
 
 def test_zero_hardcoded_plans_on_startup():
     """Verify saved plans start empty so zero fake results or sample plans are shown."""
-    from backend.app.storage.memory_store import store
-    plans = store.list_plans()
+    from backend.app.storage.db import db
+    plans = db.list_plans()
     assert len(plans) == 0
 
 

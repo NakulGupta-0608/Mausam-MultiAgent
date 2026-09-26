@@ -38,6 +38,21 @@ class Settings(BaseSettings):
     WORKFLOW_TIME_BUDGET_SEC: float = 15.0
     WORKFLOW_COST_BUDGET_USD: float = 0.05
 
+    # Database & Storage
+    DATABASE_PATH: str = "backend/mausam.db"
+
+    # Smart Monitoring & Periodic Polling
+    MONITORING_POLL_INTERVAL_SECONDS: int = 60
+    MONITORING_ENABLED: bool = True
+    MONITORING_MIN_CHECK_INTERVAL_SECONDS: int = 30
+
+    # Meaningful Change Detection Thresholds (Configurable)
+    THRESHOLD_TEMP_DELTA_C: float = 3.0
+    THRESHOLD_RAIN_PROB_DELTA_PCT: int = 15
+    THRESHOLD_WIND_DELTA_KPH: float = 12.0
+    THRESHOLD_UV_DELTA: float = 2.0
+    THRESHOLD_SCORE_DROP_PTS: int = 12
+
     # LLM Provider
     LLM_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""

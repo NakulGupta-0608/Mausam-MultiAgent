@@ -5,7 +5,7 @@
 [![Vite](https://img.shields.io/badge/Vite-6.0+-646CFF.svg?logo=vite&logoColor=white)](https://vitejs.dev)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4+-38B2AC.svg?logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
-[![Pytest](https://img.shields.io/badge/Pytest-16%20Passed-brightgreen.svg?logo=pytest&logoColor=white)](https://pytest.org)
+[![Pytest](https://img.shields.io/badge/Pytest-22%20Passed-brightgreen.svg?logo=pytest&logoColor=white)](https://pytest.org)
 
 **MausamAI** is an autonomous multi-agent decision support platform that converts complex meteorological data into personalized, actionable outdoor recommendations. Instead of simple temperature numbers or synthetic approximations, MausamAI orchestrates 5 specialized AI agents to plan tasks, acquire verified real-world telemetry, evaluate configurable transparent risk rules, synthesize comparative operational options with stated limitations, and validate decisions through an adversarial critic with bounded review loops.
 
@@ -43,6 +43,15 @@ GitHub Repository: [https://github.com/NakulGupta-0608/Mausam-MultiAgent](https:
 - **Expandable Decision Trace**: Displays agent name, action, status, review decision, retries, duration, and reasoning.
 - **Insufficient-Data UI**: Dedicated `InsufficientDataState.jsx` when Critic halts on `NEEDS_MORE_DATA`.
 - **Zero Mock Results**: Pre-seeded fake plans purged; saved plans only contain genuine user-saved records.
+
+### 5. Smart Monitoring for Saved Plans (Task 6)
+- **Persistent SQLite Database**: Thread-safe storage storing plan subject, location, action, target date, original weather snapshot, initial recommendation, and notification preferences.
+- **Background Scheduler**: Periodic background loop polling active plans with configurable intervals (30s, 60s, 120s, etc.) and rate-limiting safeguards against excessive external API calls.
+- **Configurable Meaningful Change Detection**: Filters out minor fluctuations (e.g. $\pm 0.3^\circ\text{C}$ jitter) and triggers exclusively on significant shifts ($\ge 15\%$ rain prob, $\ge 12\text{ km/h}$ wind delta, severe condition transitions).
+- **Automated Agent Re-Triggering**: On significant change, automatically re-runs `RiskAnalysisAgent`, `RecommendationAgent`, and `CriticAgent`, updating the plan's score, verdict, options, and change history.
+- **Repeat Notification Deduplication**: Composite state signature hashing suppresses duplicate alert spam while ensuring genuine shifts are dispatched immediately.
+- **Automatic Stopping Condition**: Once a plan's target date passes, monitoring concludes automatically and transitions the plan to `expired`.
+- **Interactive Monitoring Dashboard**: Live status indicator, relative last-checked timestamps, detected change diffs, before-and-after recommendation comparisons, manual re-check triggers, and simulated change test controls.
 
 ---
 
@@ -249,7 +258,7 @@ MAUSAM/
 
 ## 🧪 Testing Suite
 
-MausamAI includes 16 automated tests covering unit tools, resilience retries, multi-agent approval/rejection loops, budget enforcement, and SSE streaming.
+MausamAI includes 22 automated tests covering unit tools, resilience retries, multi-agent approval/rejection loops, budget enforcement, SSE streaming, SQLite plan persistence, configurable threshold change detection, agent re-triggering, and notification deduplication.
 
 Run all tests:
 ```bash
@@ -267,6 +276,12 @@ Run all tests:
 - `test_orchestrator_review_capping_at_two`: Enforces review cap at 2 iterations.
 - `test_multi_agent_streaming_workflow_e2e`: E2E Server-Sent Events (SSE) stream validation.
 - `test_zero_hardcoded_plans_on_startup`: Verifies clean initial state with zero mock data.
+- `test_database_plan_persistence_and_retrieval`: Persistent SQLite plan storage with snapshot and preferences.
+- `test_minor_fluctuations_not_flagged_as_significant`: Verifies minor jitter (0.3°C temp, 2% rain) is filtered out.
+- `test_meaningful_rain_and_wind_shift_flagged_as_significant`: Verifies significant shifts trigger change flags.
+- `test_scheduler_re_triggers_agents_on_significant_change`: Automated re-trigger of Risk, Recommendation, and Critic agents.
+- `test_scheduler_stops_monitoring_past_target_date`: Automatic expiration stopping condition when target date passes.
+- `test_real_weather_live_plan_check`: Live Open-Meteo check on active saved plan.
 
 ---
 
@@ -278,10 +293,16 @@ Run all tests:
 | `GET` | `/api/weather?location={city}&date={YYYY-MM-DD}` | Live verified weather telemetry |
 | `POST` | `/api/analysis` | Synchronous 5-agent pipeline execution |
 | `POST` | `/api/analysis/stream` | Real-time Server-Sent Events (SSE) streaming pipeline |
-| `GET` | `/api/plans` | Retrieves user-saved plans |
-| `POST` | `/api/plans` | Saves a verified decision plan |
+| `GET` | `/api/plans` | Retrieves user-saved plans (`?status=active`) |
+| `POST` | `/api/plans` | Saves a verified plan with snapshot & notification preferences |
+| `GET` | `/api/plans/{id}` | Retrieves plan details with detected change audit history |
 | `DELETE` | `/api/plans/{id}` | Deletes a saved plan |
-| `GET` | `/api/notifications` | Retrieves system advisories |
+| `POST` | `/api/plans/{id}/check` | Triggers immediate plan re-check (live or simulated) |
+| `PATCH`| `/api/plans/{id}/status` | Toggles monitoring status (`active`, `paused`) |
+| `GET` | `/api/monitoring/status` | Background scheduler status & polling configuration |
+| `POST` | `/api/monitoring/trigger` | Triggers immediate monitoring pass across all active plans |
+| `POST` | `/api/monitoring/interval` | Dynamically updates polling interval |
+| `GET` | `/api/notifications` | Retrieves system advisories and deduplicated plan alerts |
 | `PATCH`| `/api/notifications/{id}/read` | Marks notification as read |
 | `POST` | `/api/notifications/read-all` | Marks all notifications as read |
 
